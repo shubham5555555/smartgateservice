@@ -3,11 +3,18 @@
 .env.local
 .env.*.local
 
+# Firebase service account files (exclude from git - contain secrets)
 *.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.build.json
+!tsconfig.spec.json
 firebase-adminsdk-*.json
-
-# Firebase service account
 firebase-service-account.json
+smartgate-*-firebase-adminsdk-*.json
+snartgatedashboard-firebase-adminsdk-*.json
+smartgategaurd-firebase-adminsdk-*.json
 
 # Dependencies
 node_modules/
