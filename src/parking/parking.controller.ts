@@ -1,8 +1,11 @@
 import { Controller, Get, Post, Body, UseGuards, Request } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { ParkingService } from './parking.service';
 import { CreateParkingApplicationDto } from './dto/create-application.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
+@ApiTags('Parking')
+@ApiBearerAuth('JWT-auth')
 @Controller('parking')
 @UseGuards(JwtAuthGuard)
 export class ParkingController {

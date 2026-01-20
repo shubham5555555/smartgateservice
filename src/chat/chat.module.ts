@@ -7,6 +7,7 @@ import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
 import { ChatMessage, ChatMessageSchema } from '../schemas/chat.schema';
 import { User, UserSchema } from '../schemas/user.schema';
+import { CommonModule } from '../common/common.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { User, UserSchema } from '../schemas/user.schema';
       }),
       inject: [ConfigService],
     }),
+    CommonModule,
   ],
   controllers: [ChatController],
   providers: [ChatGateway, ChatService],

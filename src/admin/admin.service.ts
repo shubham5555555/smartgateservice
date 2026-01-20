@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { JwtService } from '@nestjs/jwt';
@@ -18,8 +18,15 @@ import { Guard, GuardDocument } from '../schemas/guard.schema';
 import { Pet, PetDocument } from '../schemas/pet.schema';
 import { ChatMessage, ChatMessageDocument } from '../schemas/chat.schema';
 import { Event, EventDocument, EventStatus } from '../schemas/event.schema';
+import { ParkingSlot, ParkingSlotDocument, SlotStatus } from '../schemas/parking-slot.schema';
+import { ParkingApplication, ParkingApplicationDocument, ApplicationStatus } from '../schemas/parking-application.schema';
+import { AmenityBooking, AmenityBookingDocument, BookingStatus } from '../schemas/amenity-booking.schema';
+import { MarketplaceListing, MarketplaceListingDocument, ListingStatus } from '../schemas/marketplace-listing.schema';
+import { MarketplaceReport, MarketplaceReportDocument } from '../schemas/marketplace-report.schema';
+import { MarketplaceChat, MarketplaceChatDocument } from '../schemas/marketplace-chat.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Inject, forwardRef } from '@nestjs/common';
+import { CreateVisitorDto } from '../visitors/dto/create-visitor.dto';
 
 @Injectable()
 export class AdminService {
@@ -39,6 +46,12 @@ export class AdminService {
     @InjectModel(Pet.name) private petModel: Model<PetDocument>,
     @InjectModel(ChatMessage.name) private chatMessageModel: Model<ChatMessageDocument>,
     @InjectModel(Event.name) private eventModel: Model<EventDocument>,
+    @InjectModel(ParkingSlot.name) private parkingSlotModel: Model<ParkingSlotDocument>,
+    @InjectModel(ParkingApplication.name) private parkingApplicationModel: Model<ParkingApplicationDocument>,
+    @InjectModel(AmenityBooking.name) private amenityBookingModel: Model<AmenityBookingDocument>,
+    @InjectModel(MarketplaceListing.name) private marketplaceListingModel: Model<MarketplaceListingDocument>,
+    @InjectModel(MarketplaceReport.name) private marketplaceReportModel: Model<MarketplaceReportDocument>,
+    @InjectModel(MarketplaceChat.name) private marketplaceChatModel: Model<MarketplaceChatDocument>,
     private jwtService: JwtService,
     @Inject(forwardRef(() => NotificationsService))
     private notificationsService?: NotificationsService,
@@ -527,12 +540,82 @@ export class AdminService {
     // Generate bills for all users or specific blocks
     const users = await this.userModel.find({ isProfileComplete: true });
     
+    // Validate and parse dueDate
+    let dueDate: Date;
+    if (data.dueDate) {
+      // Try to parse the date - handle different formats
+      // Format could be: "dd-MM-yyyy", "yyyy-MM-dd", ISO string, etc.
+      let parsedDate: Date;
+      
+      // Check if it's in dd-MM-yyyy format
+      if (typeof data.dueDate === 'string' && data.dueDate.includes('-')) {
+        const parts = data.dueDate.split('-');
+        if (parts.length === 3) {
+          // Try dd-MM-yyyy format
+          const day = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+          const year = parseInt(parts[2], 10);
+          if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+            parsedDate = new Date(year, month, day);
+          } else {
+            // Try yyyy-MM-dd format
+            const year2 = parseInt(parts[0], 10);
+            const month2 = parseInt(parts[1], 10) - 1;
+            const day2 = parseInt(parts[2], 10);
+            if (!isNaN(year2) && !isNaN(month2) && !isNaN(day2)) {
+              parsedDate = new Date(year2, month2, day2);
+            } else {
+              parsedDate = new Date(data.dueDate);
+            }
+          }
+        } else {
+          parsedDate = new Date(data.dueDate);
+        }
+      } else {
+        parsedDate = new Date(data.dueDate);
+      }
+      
+      // Check if date is valid
+      if (isNaN(parsedDate.getTime())) {
+        // If invalid, calculate due date from month and year
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const monthIndex = monthNames.indexOf(data.month);
+        if (monthIndex >= 0 && data.year) {
+          // Last day of the specified month
+          dueDate = new Date(parseInt(data.year), monthIndex + 1, 0);
+        } else {
+          // Default to end of current month if month/year parsing fails
+          const now = new Date();
+          dueDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        }
+      } else {
+        dueDate = parsedDate;
+      }
+    } else {
+      // If no dueDate provided, calculate from month and year
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const monthIndex = monthNames.indexOf(data.month);
+      if (monthIndex >= 0 && data.year) {
+        // Last day of the specified month
+        dueDate = new Date(parseInt(data.year), monthIndex + 1, 0);
+      } else {
+        // Default to end of current month
+        const now = new Date();
+        dueDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      }
+    }
+    
+    // Ensure dueDate is valid before proceeding
+    if (isNaN(dueDate.getTime())) {
+      throw new BadRequestException('Invalid due date provided');
+    }
+    
     const bills = users.map((user) => ({
       userId: user._id,
       title: `Maintenance Fee - ${data.month} ${data.year}`,
-      amount: data.maintenanceAmount + data.waterCharges + data.sinkingFund,
-      dueDate: new Date(data.dueDate),
-      status: 'Pending',
+      amount: (data.maintenanceAmount || 0) + (data.waterCharges || 0) + (data.sinkingFund || 0),
+      dueDate: dueDate,
+      status: PaymentStatus.PENDING,
       month: `${data.month} ${data.year}`,
     }));
 
@@ -859,12 +942,53 @@ export class AdminService {
   }
 
   // Packages
-  async getAllPackages() {
+  async getAllPackages(status?: string) {
+    const query: any = {};
+    if (status) {
+      query.status = status;
+    }
     return this.packageModel
-      .find()
-      .populate('userId', 'fullName building flatNo')
+      .find(query)
+      .populate('userId', 'fullName building flatNo phoneNumber')
       .sort({ createdAt: -1 })
       .exec();
+  }
+
+  async getPendingPackages() {
+    return this.packageModel
+      .find({ status: 'Pending' })
+      .populate('userId', 'fullName building flatNo phoneNumber')
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
+  async getPackageById(id: string) {
+    const packageEntry = await this.packageModel
+      .findById(id)
+      .populate('userId', 'fullName building flatNo phoneNumber')
+      .exec();
+    if (!packageEntry) {
+      throw new NotFoundException('Package not found');
+    }
+    return packageEntry;
+  }
+
+  async updatePackageStatus(id: string, status: string, collectedBy?: string, notes?: string) {
+    const packageEntry = await this.packageModel.findById(id);
+    if (!packageEntry) {
+      throw new NotFoundException('Package not found');
+    }
+
+    packageEntry.status = status as any;
+    if (status === 'Collected') {
+      packageEntry.collectedBy = collectedBy || 'Guard';
+      packageEntry.collectedAt = new Date();
+    }
+    if (notes) {
+      packageEntry.notes = notes;
+    }
+
+    return packageEntry.save();
   }
 
   // Documents
@@ -1056,6 +1180,51 @@ export class AdminService {
   }
 
   // QR Code Verification
+  async createVisitor(createDto: CreateVisitorDto & { userId?: string }) {
+    // Admin/Guard can create visitors
+    // Find first user as default if userId not provided
+    let userId: Types.ObjectId;
+    if (createDto.userId) {
+      userId = new Types.ObjectId(createDto.userId);
+    } else {
+      const firstUser = await this.userModel.findOne().exec();
+      if (!firstUser) {
+        throw new NotFoundException('No users found. Please create a user first.');
+      }
+      userId = firstUser._id;
+    }
+
+    // Generate QR code data
+    const qrData = JSON.stringify({
+      visitorId: new Types.ObjectId().toString(),
+      userId: userId.toString(),
+      timestamp: Date.now(),
+    });
+
+    const visitor = new this.visitorModel({
+      name: createDto.name,
+      type: createDto.type,
+      phoneNumber: createDto.phoneNumber,
+      profilePhoto: createDto.profilePhoto,
+      isPreApproved: createDto.isPreApproved,
+      expectedDate: createDto.expectedDate ? new Date(createDto.expectedDate) : undefined,
+      userId: userId,
+      status: createDto.isPreApproved ? VisitorStatus.APPROVED : VisitorStatus.PENDING,
+      qrCode: qrData,
+    });
+    
+    const savedVisitor = await visitor.save();
+    
+    // Update QR code with actual visitor ID
+    savedVisitor.qrCode = JSON.stringify({
+      visitorId: savedVisitor._id.toString(),
+      userId: userId.toString(),
+      timestamp: Date.now(),
+    });
+    
+    return savedVisitor.save();
+  }
+
   async verifyVisitorQR(qrData: string) {
     try {
       console.log('🔍 Verifying QR code:', qrData);
@@ -1239,5 +1408,295 @@ export class AdminService {
       return { success: false, message: 'Notifications service not available' };
     }
     return this.notificationsService.sendNotificationToAllGuards(title, body, data);
+  }
+
+  // Parking Management
+  async getAllParkingSlots() {
+    return this.parkingSlotModel
+      .find()
+      .populate('assignedTo', 'fullName building flatNo phoneNumber')
+      .sort({ floor: 1, slotNumber: 1 })
+      .exec();
+  }
+
+  async getAllParkingApplications() {
+    return this.parkingApplicationModel
+      .find()
+      .populate('userId', 'fullName building flatNo phoneNumber')
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
+  async assignParkingSlot(slotId: string, userId: string, licensePlate?: string, vehicleName?: string) {
+    const slot = await this.parkingSlotModel.findById(slotId);
+    if (!slot) {
+      throw new NotFoundException('Parking slot not found');
+    }
+
+    if (slot.status === SlotStatus.OCCUPIED) {
+      throw new BadRequestException('Parking slot is already occupied');
+    }
+
+    slot.assignedTo = new Types.ObjectId(userId);
+    slot.status = SlotStatus.OCCUPIED;
+    if (licensePlate) slot.licensePlate = licensePlate;
+    if (vehicleName) slot.vehicleName = vehicleName;
+
+    return slot.save();
+  }
+
+  async approveParkingApplication(applicationId: string, slotId?: string) {
+    const application = await this.parkingApplicationModel.findById(applicationId);
+    if (!application) {
+      throw new NotFoundException('Parking application not found');
+    }
+
+    application.status = ApplicationStatus.APPROVED;
+
+    // If slotId is provided, assign the slot
+    if (slotId) {
+      await this.assignParkingSlot(
+        slotId,
+        application.userId.toString(),
+        application.licensePlate,
+        application.vehicle,
+      );
+    }
+
+    return application.save();
+  }
+
+  async rejectParkingApplication(applicationId: string) {
+    const application = await this.parkingApplicationModel.findById(applicationId);
+    if (!application) {
+      throw new NotFoundException('Parking application not found');
+    }
+
+    application.status = ApplicationStatus.REJECTED;
+    return application.save();
+  }
+
+  // Maintenance Management
+  async getAllMaintenance(status?: string) {
+    const query: any = {};
+    if (status) {
+      query.status = status;
+    }
+
+    return this.maintenanceModel
+      .find(query)
+      .populate('userId', 'fullName building flatNo phoneNumber')
+      .sort({ dueDate: 1 })
+      .exec();
+  }
+
+  async markMaintenancePaid(id: string, paymentMethod: string, transactionId: string) {
+    const maintenance = await this.maintenanceModel.findById(id);
+    if (!maintenance) {
+      throw new NotFoundException('Maintenance record not found');
+    }
+
+    maintenance.status = PaymentStatus.PAID;
+    maintenance.paidDate = new Date();
+    maintenance.paymentMethod = paymentMethod;
+    maintenance.transactionId = transactionId;
+
+    return maintenance.save();
+  }
+
+  // Amenities Booking Management
+  async getAllAmenityBookings(status?: string) {
+    const query: any = {};
+    if (status) {
+      query.status = status;
+    }
+
+    return this.amenityBookingModel
+      .find(query)
+      .populate('userId', 'fullName building flatNo phoneNumber')
+      .sort({ bookingDate: 1, timeSlot: 1 })
+      .exec();
+  }
+
+  async getAmenityBookingById(id: string) {
+    const booking = await this.amenityBookingModel
+      .findById(id)
+      .populate('userId', 'fullName building flatNo phoneNumber')
+      .exec();
+
+    if (!booking) {
+      throw new NotFoundException('Amenity booking not found');
+    }
+
+    return booking;
+  }
+
+  async cancelAmenityBooking(id: string) {
+    const booking = await this.amenityBookingModel.findById(id);
+    if (!booking) {
+      throw new NotFoundException('Amenity booking not found');
+    }
+
+    const bookingDate = new Date(booking.bookingDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (bookingDate < today) {
+      throw new BadRequestException('Cannot cancel past bookings');
+    }
+
+    booking.status = BookingStatus.CANCELLED;
+    return booking.save();
+  }
+
+  // Marketplace Management
+  async getAllMarketplaceListings(status?: string, category?: string, search?: string) {
+    const query: any = {};
+
+    if (status) {
+      query.status = status;
+    }
+
+    if (category) {
+      query.category = category;
+    }
+
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    return this.marketplaceListingModel
+      .find(query)
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .populate('buyerId', 'fullName phoneNumber')
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
+  async getMarketplaceListingById(id: string) {
+    const listing = await this.marketplaceListingModel
+      .findById(id)
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .populate('buyerId', 'fullName phoneNumber')
+      .exec();
+
+    if (!listing) {
+      throw new NotFoundException('Listing not found');
+    }
+
+    return listing;
+  }
+
+  async deleteMarketplaceListing(id: string) {
+    const listing = await this.marketplaceListingModel.findById(id);
+    if (!listing) {
+      throw new NotFoundException('Listing not found');
+    }
+
+    return this.marketplaceListingModel.findByIdAndUpdate(
+      id,
+      { status: ListingStatus.DELETED },
+      { new: true },
+    ).exec();
+  }
+
+  async updateMarketplaceListingStatus(id: string, status: string) {
+    const listing = await this.marketplaceListingModel.findById(id);
+    if (!listing) {
+      throw new NotFoundException('Listing not found');
+    }
+
+    if (!Object.values(ListingStatus).includes(status as ListingStatus)) {
+      throw new BadRequestException('Invalid status');
+    }
+
+    return this.marketplaceListingModel.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true },
+    ).exec();
+  }
+
+  async getAllMarketplaceReports(resolved?: boolean) {
+    const query: any = {};
+    if (resolved !== undefined) {
+      query.isResolved = resolved;
+    }
+
+    return this.marketplaceReportModel
+      .find(query)
+      .populate('listingId', 'title price images')
+      .populate('reportedBy', 'fullName phoneNumber')
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
+  async resolveMarketplaceReport(id: string) {
+    const report = await this.marketplaceReportModel.findById(id);
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+
+    return this.marketplaceReportModel.findByIdAndUpdate(
+      id,
+      { isResolved: true },
+      { new: true },
+    ).exec();
+  }
+
+  async getAllMarketplaceChats() {
+    return this.marketplaceChatModel
+      .find({ isActive: true })
+      .populate('listingId', 'title price images')
+      .populate('sellerId', 'fullName phoneNumber')
+      .populate('buyerId', 'fullName phoneNumber')
+      .sort({ lastMessageAt: -1, updatedAt: -1 })
+      .exec();
+  }
+
+  async getMarketplaceStats() {
+    const totalListings = await this.marketplaceListingModel.countDocuments({
+      status: { $ne: ListingStatus.DELETED },
+    });
+    const activeListings = await this.marketplaceListingModel.countDocuments({
+      status: ListingStatus.ACTIVE,
+    });
+    const soldListings = await this.marketplaceListingModel.countDocuments({
+      status: ListingStatus.SOLD,
+    });
+    const totalReports = await this.marketplaceReportModel.countDocuments({
+      isResolved: false,
+    });
+    const totalChats = await this.marketplaceChatModel.countDocuments({
+      isActive: true,
+    });
+
+    // Category breakdown
+    const categoryStats = await this.marketplaceListingModel.aggregate([
+      {
+        $match: { status: { $ne: ListingStatus.DELETED } },
+      },
+      {
+        $group: {
+          _id: '$category',
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: { count: -1 },
+      },
+    ]);
+
+    return {
+      totalListings,
+      activeListings,
+      soldListings,
+      totalReports,
+      totalChats,
+      categoryStats,
+    };
   }
 }

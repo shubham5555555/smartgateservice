@@ -21,6 +21,8 @@ import { PetsModule } from './pets/pets.module';
 import { ChatModule } from './chat/chat.module';
 import { EventsModule } from './events/events.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { MarketplaceModule } from './marketplace/marketplace.module';
+import { CommonModule } from './common/common.module';
 
 @Module({
   imports: [
@@ -35,6 +37,7 @@ import { NotificationsModule } from './notifications/notifications.module';
       }),
       inject: [ConfigService],
     }),
+    CommonModule, // Global module for CloudinaryService
     AuthModule,
     UsersModule,
     StaffModule,
@@ -53,6 +56,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     ChatModule,
     EventsModule,
     NotificationsModule,
+    MarketplaceModule,
   ],
   controllers: [AppController],
   providers: [AppService],

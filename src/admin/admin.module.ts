@@ -19,6 +19,12 @@ import { Guard, GuardSchema } from '../schemas/guard.schema';
 import { Pet, PetSchema } from '../schemas/pet.schema';
 import { ChatMessage, ChatMessageSchema } from '../schemas/chat.schema';
 import { Event, EventSchema } from '../schemas/event.schema';
+import { ParkingSlot, ParkingSlotSchema } from '../schemas/parking-slot.schema';
+import { ParkingApplication, ParkingApplicationSchema } from '../schemas/parking-application.schema';
+import { AmenityBooking, AmenityBookingSchema } from '../schemas/amenity-booking.schema';
+import { MarketplaceListing, MarketplaceListingSchema } from '../schemas/marketplace-listing.schema';
+import { MarketplaceReport, MarketplaceReportSchema } from '../schemas/marketplace-report.schema';
+import { MarketplaceChat, MarketplaceChatSchema } from '../schemas/marketplace-chat.schema';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { forwardRef } from '@nestjs/common';
 
@@ -40,6 +46,12 @@ import { forwardRef } from '@nestjs/common';
       { name: Pet.name, schema: PetSchema },
       { name: ChatMessage.name, schema: ChatMessageSchema },
       { name: Event.name, schema: EventSchema },
+      { name: ParkingSlot.name, schema: ParkingSlotSchema },
+      { name: ParkingApplication.name, schema: ParkingApplicationSchema },
+      { name: AmenityBooking.name, schema: AmenityBookingSchema },
+      { name: MarketplaceListing.name, schema: MarketplaceListingSchema },
+      { name: MarketplaceReport.name, schema: MarketplaceReportSchema },
+      { name: MarketplaceChat.name, schema: MarketplaceChatSchema },
     ]),
     forwardRef(() => NotificationsModule),
     JwtModule.registerAsync({
@@ -54,4 +66,6 @@ import { forwardRef } from '@nestjs/common';
   controllers: [AdminController],
   providers: [AdminService],
 })
-export class AdminModule {}
+export class AdminModule {
+  // CloudinaryService is available globally via CommonModule
+}

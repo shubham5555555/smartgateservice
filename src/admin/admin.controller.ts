@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, UseInterceptors, UploadedFiles, UnauthorizedException } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody, ApiParam, ApiQuery, ApiConsumes } from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -9,13 +10,41 @@ import { UpdateResidentDto } from './dto/update-resident.dto';
 import { CreateStaffAdminDto } from './dto/create-staff-admin.dto';
 import { UpdateStaffAdminDto } from './dto/update-staff-admin.dto';
 import { StaffType } from '../schemas/staff.schema';
+import { CreateVisitorDto } from '../visitors/dto/create-visitor.dto';
+import { CloudinaryService } from '../common/cloudinary.service';
 
+@ApiTags('Admin')
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
   // Auth endpoints (no guard)
   @Post('auth/login')
+  @ApiOperation({ 
+    summary: 'Admin login',
+    description: 'Authenticates an admin user with email and password. Returns a JWT token for accessing protected endpoints.',
+  })
+  @ApiBody({ type: LoginDto })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Login successful',
+    schema: {
+      example: {
+        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        user: {
+          id: 'admin_id',
+          email: 'admin@smartgate.com',
+        },
+      },
+    },
+  })
+  @ApiResponse({ 
+    status: 401, 
+    description: 'Invalid credentials',
+  })
   async login(@Body() loginDto: LoginDto) {
     return this.adminService.login(loginDto.email, loginDto.password);
   }
@@ -259,16 +288,29 @@ export class AdminController {
   @Post('notices')
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FilesInterceptor('attachments', 10))
+  @ApiOperation({ 
+    summary: 'Create notice with attachments',
+    description: 'Creates a notice and uploads attachment files to Cloudinary.',
+  })
+  @ApiConsumes('multipart/form-data')
   async createNotice(
     @Body() body: any,
     @UploadedFiles() files?: Express.Multer.File[],
   ) {
+    let attachmentUrls: string[] = [];
+    
+    if (files && files.length > 0) {
+      attachmentUrls = await Promise.all(
+        files.map((file) => this.cloudinaryService.uploadFile(file, 'notices/attachments'))
+      );
+    }
+
     const data = {
       title: body.title,
       content: body.content,
       category: body.category,
       expiryDate: body.expiryDate,
-      attachments: files?.map((f) => f.filename || f.originalname) || [],
+      attachments: attachmentUrls,
     };
     return this.adminService.createNotice(data);
   }
@@ -385,11 +427,113 @@ export class AdminController {
     return this.adminService.getAllVehicles();
   }
 
+  // Parking Management APIs
+  @Get('parking/slots')
+  @UseGuards(JwtAuthGuard)
+  async getAllParkingSlots() {
+    return this.adminService.getAllParkingSlots();
+  }
+
+  @Get('parking/applications')
+  @UseGuards(JwtAuthGuard)
+  async getAllParkingApplications() {
+    return this.adminService.getAllParkingApplications();
+  }
+
+  @Post('parking/slots/:id/assign')
+  @UseGuards(JwtAuthGuard)
+  async assignParkingSlot(
+    @Param('id') slotId: string,
+    @Body() body: { userId: string; licensePlate?: string; vehicleName?: string },
+  ) {
+    return this.adminService.assignParkingSlot(slotId, body.userId, body.licensePlate, body.vehicleName);
+  }
+
+  @Post('parking/applications/:id/approve')
+  @UseGuards(JwtAuthGuard)
+  async approveParkingApplication(
+    @Param('id') applicationId: string,
+    @Body() body: { slotId?: string },
+  ) {
+    return this.adminService.approveParkingApplication(applicationId, body.slotId);
+  }
+
+  @Post('parking/applications/:id/reject')
+  @UseGuards(JwtAuthGuard)
+  async rejectParkingApplication(@Param('id') applicationId: string) {
+    return this.adminService.rejectParkingApplication(applicationId);
+  }
+
+  // Maintenance Payment APIs
+  @Get('maintenance/all')
+  @UseGuards(JwtAuthGuard)
+  async getAllMaintenance(@Query('status') status?: string) {
+    return this.adminService.getAllMaintenance(status);
+  }
+
+  @Post('maintenance/:id/mark-paid')
+  @UseGuards(JwtAuthGuard)
+  async markMaintenancePaid(
+    @Param('id') id: string,
+    @Body() body: { paymentMethod: string; transactionId: string },
+  ) {
+    return this.adminService.markMaintenancePaid(id, body.paymentMethod, body.transactionId);
+  }
+
+  // Amenities Booking APIs
+  @Get('amenities/bookings')
+  @UseGuards(JwtAuthGuard)
+  async getAllAmenityBookings(@Query('status') status?: string) {
+    return this.adminService.getAllAmenityBookings(status);
+  }
+
+  @Get('amenities/bookings/:id')
+  @UseGuards(JwtAuthGuard)
+  async getAmenityBookingById(@Param('id') id: string) {
+    return this.adminService.getAmenityBookingById(id);
+  }
+
+  @Post('amenities/bookings/:id/cancel')
+  @UseGuards(JwtAuthGuard)
+  async cancelAmenityBooking(@Param('id') id: string) {
+    return this.adminService.cancelAmenityBooking(id);
+  }
+
   // Packages APIs
   @Get('packages')
   @UseGuards(JwtAuthGuard)
-  async getAllPackages() {
-    return this.adminService.getAllPackages();
+  async getAllPackages(@Query('status') status?: string) {
+    return this.adminService.getAllPackages(status);
+  }
+
+  @Get('packages/pending')
+  @UseGuards(JwtAuthGuard)
+  async getPendingPackages() {
+    return this.adminService.getPendingPackages();
+  }
+
+  @Get('packages/:id')
+  @UseGuards(JwtAuthGuard)
+  async getPackageById(@Param('id') id: string) {
+    return this.adminService.getPackageById(id);
+  }
+
+  @Put('packages/:id/status')
+  @UseGuards(JwtAuthGuard)
+  async updatePackageStatus(
+    @Param('id') id: string,
+    @Body() body: { status: string; collectedBy?: string; notes?: string },
+  ) {
+    return this.adminService.updatePackageStatus(id, body.status, body.collectedBy, body.notes);
+  }
+
+  @Put('packages/:id/collect')
+  @UseGuards(JwtAuthGuard)
+  async collectPackage(
+    @Param('id') id: string,
+    @Body() body: { collectedBy: string; notes?: string },
+  ) {
+    return this.adminService.updatePackageStatus(id, 'Collected', body.collectedBy, body.notes);
   }
 
   // Documents APIs
@@ -481,6 +625,14 @@ export class AdminController {
   @UseGuards(JwtAuthGuard)
   async verifyVisitorQR(@Body() body: { qrData: string }) {
     return this.adminService.verifyVisitorQR(body.qrData);
+  }
+
+  @Post('visitors')
+  @UseGuards(JwtAuthGuard)
+  async createVisitor(@Body() createDto: CreateVisitorDto) {
+    // Admin/Guard can create visitors on behalf of users
+    // If userId is provided, use it; otherwise, use first user as default
+    return this.adminService.createVisitor(createDto);
   }
 
   // Pets Management
@@ -613,5 +765,61 @@ export class AdminController {
     data?: Record<string, string>;
   }) {
     return this.adminService.sendNotificationToAllGuards(body.title, body.body, body.data);
+  }
+
+  // Marketplace Management APIs
+  @Get('marketplace/listings')
+  @UseGuards(JwtAuthGuard)
+  async getAllMarketplaceListings(
+    @Query('status') status?: string,
+    @Query('category') category?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.getAllMarketplaceListings(status, category, search);
+  }
+
+  @Get('marketplace/listings/:id')
+  @UseGuards(JwtAuthGuard)
+  async getMarketplaceListingById(@Param('id') id: string) {
+    return this.adminService.getMarketplaceListingById(id);
+  }
+
+  @Delete('marketplace/listings/:id')
+  @UseGuards(JwtAuthGuard)
+  async deleteMarketplaceListing(@Param('id') id: string) {
+    return this.adminService.deleteMarketplaceListing(id);
+  }
+
+  @Put('marketplace/listings/:id/status')
+  @UseGuards(JwtAuthGuard)
+  async updateMarketplaceListingStatus(
+    @Param('id') id: string,
+    @Body() body: { status: string },
+  ) {
+    return this.adminService.updateMarketplaceListingStatus(id, body.status);
+  }
+
+  @Get('marketplace/reports')
+  @UseGuards(JwtAuthGuard)
+  async getAllMarketplaceReports(@Query('resolved') resolved?: string) {
+    return this.adminService.getAllMarketplaceReports(resolved === 'true');
+  }
+
+  @Put('marketplace/reports/:id/resolve')
+  @UseGuards(JwtAuthGuard)
+  async resolveMarketplaceReport(@Param('id') id: string) {
+    return this.adminService.resolveMarketplaceReport(id);
+  }
+
+  @Get('marketplace/chats')
+  @UseGuards(JwtAuthGuard)
+  async getAllMarketplaceChats() {
+    return this.adminService.getAllMarketplaceChats();
+  }
+
+  @Get('marketplace/stats')
+  @UseGuards(JwtAuthGuard)
+  async getMarketplaceStats() {
+    return this.adminService.getMarketplaceStats();
   }
 }

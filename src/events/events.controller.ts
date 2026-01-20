@@ -10,17 +10,27 @@ import {
   Request,
   Query,
   Patch,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes, ApiParam } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { RsvpEventDto } from './dto/rsvp-event.dto';
+import { CloudinaryService } from '../common/cloudinary.service';
 
+@ApiTags('Events')
+@ApiBearerAuth('JWT-auth')
 @Controller('events')
 @UseGuards(JwtAuthGuard)
 export class EventsController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(
+    private readonly eventsService: EventsService,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
   @Post()
   async create(@Body() createEventDto: CreateEventDto, @Request() req) {
@@ -70,12 +80,28 @@ export class EventsController {
   }
 
   @Post(':id/photos')
-  async addPhoto(
-    @Param('id') id: string,
-    @Body() body: { photoUrl: string },
-    @Request() req,
-  ) {
-    return this.eventsService.addPhoto(id, body.photoUrl, req.user.userId);
+  @UseInterceptors(FileInterceptor('photo'))
+  @ApiOperation({ 
+    summary: 'Add event photo',
+    description: 'Uploads a photo to Cloudinary and adds it to the event. Only the event creator can add photos.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiParam({ name: 'id', description: 'Event ID' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Photo added successfully',
+  })
+  @ApiResponse({ 
+    status: 403, 
+    description: 'Only event creator can add photos',
+  })
+  async addPhoto(@Param('id') id: string, @Request() req, @UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new Error('No file provided');
+    }
+
+    const photoUrl = await this.cloudinaryService.uploadEventPhoto(file);
+    return this.eventsService.addPhoto(id, photoUrl, req.user.userId);
   }
 
   @Delete(':id/photos')
