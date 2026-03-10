@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import { S3Service } from '../common/s3.service';
@@ -6,18 +7,21 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Building, BuildingDocument } from '../schemas/building.schema';
 
-const connection = new IORedis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
-  maxRetriesPerRequest: null,
-});
-
 @Injectable()
 export class ImageProcessor implements OnModuleInit {
   private readonly logger = new Logger(ImageProcessor.name);
+  private readonly connection: IORedis;
 
   constructor(
     private readonly s3Service: S3Service,
     @InjectModel(Building.name) private buildingModel: Model<BuildingDocument>,
-  ) { }
+    private readonly configService: ConfigService,
+  ) {
+    this.connection = new IORedis(
+      this.configService.get<string>('REDIS_URL', 'redis://default:TlGMWaK369Vl7xgiAhvmRzYx2VHeGP19@redis-14058.crce281.ap-south-1-3.ec2.cloud.redislabs.com:14058'),
+      { maxRetriesPerRequest: null },
+    );
+  }
 
   onModuleInit() {
     const worker = new Worker(
@@ -88,7 +92,7 @@ export class ImageProcessor implements OnModuleInit {
 
         return { ok: true };
       },
-      { connection },
+      { connection: this.connection },
     );
 
     worker.on('failed', (job, err) => {

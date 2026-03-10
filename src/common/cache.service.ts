@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
 @Injectable()
@@ -6,8 +7,8 @@ export class CacheService {
   private client: Redis;
   private readonly logger = new Logger(CacheService.name);
 
-  constructor() {
-    const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+  constructor(private readonly configService: ConfigService) {
+    const redisUrl = this.configService.get<string>('REDIS_URL', 'redis://127.0.0.1:6379');
     this.client = new Redis(redisUrl);
     this.client.on('error', (err) => this.logger.error('Redis error', err));
   }

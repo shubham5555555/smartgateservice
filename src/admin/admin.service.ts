@@ -133,9 +133,9 @@ export class AdminService {
   async login(email: string, password: string) {
     // For admin, we'll use a simple check or create admin user
     // In production, you'd have a separate Admin model
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@smartgate.com';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-    const hashedPassword = process.env.ADMIN_PASSWORD_HASHED;
+    const adminEmail = this.configService.get<string>('ADMIN_EMAIL', 'admin@smartgate.com');
+    const adminPassword = this.configService.get<string>('ADMIN_PASSWORD', 'admin123');
+    const hashedPassword = this.configService.get<string>('ADMIN_PASSWORD_HASHED');
 
     if (email !== adminEmail) {
       throw new UnauthorizedException('Invalid email or password');
@@ -339,9 +339,9 @@ export class AdminService {
     currentPassword: string,
     newPassword: string,
   ) {
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@smartgate.com';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-    const hashedPassword = process.env.ADMIN_PASSWORD_HASHED;
+    const adminEmail = this.configService.get<string>('ADMIN_EMAIL', 'admin@smartgate.com');
+    const adminPassword = this.configService.get<string>('ADMIN_PASSWORD', 'admin123');
+    const hashedPassword = this.configService.get<string>('ADMIN_PASSWORD_HASHED');
 
     if (email !== adminEmail) {
       throw new UnauthorizedException('Invalid email');
@@ -2416,7 +2416,7 @@ export class AdminService {
       // Check if QR code is valid (not expired)
       // Default validity: 24 hours, configurable via environment variable
       const QR_VALIDITY_HOURS = parseInt(
-        process.env.QR_VALIDITY_HOURS || '24',
+        this.configService.get<string>('QR_VALIDITY_HOURS', '24'),
         10,
       );
       const QR_VALIDITY_MS = QR_VALIDITY_HOURS * 60 * 60 * 1000;

@@ -1,24 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Queue, Worker } from 'bullmq';
 import IORedis from 'ioredis';
-
-const connection = new IORedis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', {
-  maxRetriesPerRequest: null,
-});
 
 @Injectable()
 export class QueueService {
   private readonly logger = new Logger(QueueService.name);
   private readonly queues: Record<string, Queue> = {};
+  private readonly connection: IORedis;
 
-  constructor() {
+  constructor(private readonly configService: ConfigService) {
+    this.connection = new IORedis(
+      this.configService.get<string>('REDIS_URL', 'redis://default:TlGMWaK369Vl7xgiAhvmRzYx2VHeGP19@redis-14058.crce281.ap-south-1-3.ec2.cloud.redislabs.com:14058'),
+      { maxRetriesPerRequest: null },
+    );
+
     const imageWorker = new Worker(
       'imageQueue',
       async (job) => {
         this.logger.log(`Processing image job ${job.id} type=${job.name}`);
         return { ok: true };
       },
-      { connection },
+      { connection: this.connection },
     );
 
     imageWorker.on('failed', (job, err) => {
@@ -28,7 +31,7 @@ export class QueueService {
 
   getQueue(name: string) {
     if (!this.queues[name]) {
-      this.queues[name] = new Queue(name, { connection });
+      this.queues[name] = new Queue(name, { connection: this.connection });
     }
     return this.queues[name];
   }

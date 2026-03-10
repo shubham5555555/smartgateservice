@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as os from 'os';
@@ -86,7 +87,8 @@ async function bootstrap() {
     },
   });
 
-  const port = process.env.PORT ?? 5050;
+  const configService = app.get(ConfigService);
+  const port = configService.get<number>('PORT', 5050);
   await app.listen(port, '0.0.0.0');
 
   // Get local IP address

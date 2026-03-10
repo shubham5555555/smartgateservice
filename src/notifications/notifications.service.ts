@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User, UserDocument } from '../schemas/user.schema';
@@ -16,6 +17,7 @@ export class NotificationsService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Guard.name) private guardModel: Model<GuardDocument>,
     @InjectModel(Notification.name) private notificationModel: Model<NotificationDocument>,
+    private readonly configService: ConfigService,
   ) {
     this.initializeFirebase();
   }
@@ -36,19 +38,15 @@ export class NotificationsService {
       } catch (error) {
         // Option 2: Use environment variables
         try {
-          if (
-            process.env.FIREBASE_PROJECT_ID &&
-            process.env.FIREBASE_PRIVATE_KEY &&
-            process.env.FIREBASE_CLIENT_EMAIL
-          ) {
+          const projectId = this.configService.get<string>('FIREBASE_PROJECT_ID');
+          const privateKey = this.configService.get<string>('FIREBASE_PRIVATE_KEY');
+          const clientEmail = this.configService.get<string>('FIREBASE_CLIENT_EMAIL');
+          if (projectId && privateKey && clientEmail) {
             this.firebaseApp = admin.initializeApp({
               credential: admin.credential.cert({
-                projectId: process.env.FIREBASE_PROJECT_ID,
-                privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(
-                  /\\n/g,
-                  '\n',
-                ),
-                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                projectId,
+                privateKey: privateKey.replace(/\\n/g, '\n'),
+                clientEmail,
               }),
             });
             this.isInitialized = true;
