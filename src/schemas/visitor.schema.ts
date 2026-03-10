@@ -5,9 +5,16 @@ export type VisitorDocument = Visitor & Document;
 
 export enum VisitorType {
   GUEST = 'Guest',
+  FAMILY = 'Family',
+  FRIEND = 'Friend',
   DELIVERY = 'Delivery',
+  CAB = 'Cab/Taxi',
+  HOUSE_HELP = 'House Help',
+  SERVICE = 'Service',
+  DOCTOR = 'Doctor',
   SPOUSE = 'Spouse',
   STAFF = 'Staff',
+  OTHER = 'Other',
 }
 
 export enum VisitorStatus {

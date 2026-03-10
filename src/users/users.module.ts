@@ -4,7 +4,7 @@ import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { User, UserSchema } from '../schemas/user.schema';
 import { Building, BuildingSchema } from '../schemas/building.schema';
-import { CloudinaryService } from '../common/cloudinary.service';
+
 import { CommonModule } from '../common/common.module';
 
 @Module({
@@ -19,4 +19,4 @@ import { CommonModule } from '../common/common.module';
   providers: [UsersService],
   exports: [UsersService],
 })
-export class UsersModule {}
+export class UsersModule { }

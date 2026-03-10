@@ -1636,7 +1636,118 @@ export class AdminService {
     return this.userModel.findByIdAndDelete(id).exec();
   }
 
-  async getResidentsSummary() {
+  async verifyResidentId(userId: string) {
+    const user = await this.userModel.findById(userId);
+    if (!user) {
+      throw new NotFoundException('Resident not found');
+    }
+
+    // Fetch owner details if it's a family member or tenant linked to an owner
+    let ownerName: string | undefined = undefined;
+    if (user.parentUserId) {
+      const owner = await this.userModel.findById(user.parentUserId);
+      if (owner) {
+        ownerName = owner.fullName;
+      }
+    }
+
+    return {
+      userId: user._id,
+      fullName: user.fullName,
+      role: user.role,
+      block: user.block,
+      flat: user.flat,
+      profilePhoto: user.profilePhoto,
+      isApproved: user.isApprovedByAdmin,
+      relation: user.relation,
+      ownerName: ownerName,
+    };
+  }
+
+  async getResidentsWithSubUsers(
+    building?: string,
+    search?: string,
+    role?: string,
+  ) {
+    const query: any = { parentUserId: { $exists: false } };
+
+    if (role && role !== 'all') {
+      query.role = role;
+    } else {
+      // Only get owners/main residents (not sub-users)
+      query.role = { $in: ['Owner', 'Tenant', 'Family Member', null] };
+    }
+
+    if (building) {
+      query.building = { $regex: building, $options: 'i' };
+    }
+
+    if (search) {
+      query.$or = [
+        { fullName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phoneNumber: { $regex: search, $options: 'i' } },
+        { flat: { $regex: search, $options: 'i' } },
+        { flatNo: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const residents = await this.userModel
+      .find(query)
+      .select('_id fullName email phoneNumber role relation parentUserId building block flat flatNo isEmailVerified isApprovedByAdmin isProfileComplete createdAt')
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    // For each resident, fetch their sub-users
+    const result = await Promise.all(
+      residents.map(async (resident: any) => {
+        const residentId = resident._id ? resident._id.toString() : null;
+        const subUsers = await this.userModel
+          .find({ parentUserId: residentId })
+          .select('_id fullName email phoneNumber role relation building block flat flatNo isEmailVerified isApprovedByAdmin createdAt')
+          .lean()
+          .exec();
+
+        return {
+          id: residentId,
+          _id: residentId,
+          fullName: resident.fullName || null,
+          email: resident.email || null,
+          phoneNumber: resident.phoneNumber || null,
+          role: resident.role || null,
+          building: resident.building || null,
+          block: resident.block || null,
+          flat: resident.flat || null,
+          flatNo: resident.flatNo || null,
+          isEmailVerified: resident.isEmailVerified || false,
+          isApprovedByAdmin: resident.isApprovedByAdmin || false,
+          isProfileComplete: resident.isProfileComplete || false,
+          createdAt: resident.createdAt ? new Date(resident.createdAt).toISOString() : null,
+          subUsers: subUsers.map((su: any) => ({
+            id: su._id ? su._id.toString() : null,
+            _id: su._id ? su._id.toString() : null,
+            fullName: su.fullName || null,
+            email: su.email || null,
+            phoneNumber: su.phoneNumber || null,
+            role: su.role || null,
+            relation: su.relation || null,
+            building: su.building || null,
+            block: su.block || null,
+            flat: su.flat || null,
+            flatNo: su.flatNo || null,
+            isEmailVerified: su.isEmailVerified || false,
+            isApprovedByAdmin: su.isApprovedByAdmin || false,
+            createdAt: su.createdAt ? new Date(su.createdAt).toISOString() : null,
+          })),
+        };
+      }),
+    );
+
+    return result;
+  }
+
+    async getResidentsSummary() {
     const total = await this.userModel.countDocuments({
       isProfileComplete: true,
     });

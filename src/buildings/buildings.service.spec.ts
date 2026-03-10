@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { BuildingsService } from './buildings.service';
 import { getModelToken } from '@nestjs/mongoose';
-import { CloudinaryService } from '../common/cloudinary.service';
+import { S3Service } from '../common/s3.service';
 import { QueueService } from '../queues/queue.service';
 
 describe('BuildingsService (unit)', () => {
@@ -15,7 +15,7 @@ describe('BuildingsService (unit)', () => {
   const mockUserModel = {
     findById: jest.fn(),
   };
-  const mockCloudinary = {};
+  const mockS3 = {};
   const mockQueue = { add: jest.fn() };
 
   beforeEach(async () => {
@@ -24,7 +24,7 @@ describe('BuildingsService (unit)', () => {
         BuildingsService,
         { provide: getModelToken('Building'), useValue: mockBuildingModel },
         { provide: getModelToken('User'), useValue: mockUserModel },
-        { provide: CloudinaryService, useValue: mockCloudinary },
+        { provide: S3Service, useValue: mockS3 },
         { provide: QueueService, useValue: mockQueue },
       ],
     }).compile();

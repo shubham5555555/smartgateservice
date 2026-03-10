@@ -35,15 +35,15 @@ import { CreateStaffAdminDto } from './dto/create-staff-admin.dto';
 import { UpdateStaffAdminDto } from './dto/update-staff-admin.dto';
 import { StaffType } from '../schemas/staff.schema';
 import { CreateVisitorDto } from '../visitors/dto/create-visitor.dto';
-import { CloudinaryService } from '../common/cloudinary.service';
+import { S3Service } from '../common/s3.service';
 
 @ApiTags('Admin')
 @Controller('admin')
 export class AdminController {
   constructor(
     private readonly adminService: AdminService,
-    private readonly cloudinaryService: CloudinaryService,
-  ) {}
+    private readonly s3Service: S3Service,
+  ) { }
 
   // Auth endpoints (no guard)
   @Post('auth/login')
@@ -469,7 +469,7 @@ export class AdminController {
   @UseInterceptors(FilesInterceptor('attachments', 10))
   @ApiOperation({
     summary: 'Create notice with attachments',
-    description: 'Creates a notice and uploads attachment files to Cloudinary.',
+    description: 'Creates a notice and uploads attachment files to S3.',
   })
   @ApiConsumes('multipart/form-data')
   async createNotice(
@@ -481,7 +481,7 @@ export class AdminController {
     if (files && files.length > 0) {
       attachmentUrls = await Promise.all(
         files.map((file) =>
-          this.cloudinaryService.uploadFile(file, 'notices/attachments'),
+          this.s3Service.uploadFile(file, 'notices/attachments'),
         ),
       );
     }
@@ -659,6 +659,18 @@ export class AdminController {
     return this.adminService.getResidentById(id);
   }
 
+  @Get('residents/:id/verify-id')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Verify Resident ID (For Guards)',
+    description: 'Returns essential profile verification details based on userId payload from QR.',
+  })
+  @ApiParam({ name: 'id', description: 'User ID to verify' })
+  @ApiResponse({ status: 200, description: 'Resident verification details retrieved successfully' })
+  async verifyResidentId(@Param('id') id: string) {
+    return this.adminService.verifyResidentId(id);
+  }
+
   @Post('residents')
   @UseGuards(JwtAuthGuard)
   async createResident(@Body() createResidentDto: CreateResidentDto) {
@@ -680,7 +692,19 @@ export class AdminController {
     return this.adminService.deleteResident(id);
   }
 
-  @Get('residents/stats/summary')
+  @Get('residents/with-sub-users')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get residents with their family members and tenants' })
+  @ApiResponse({ status: 200, description: 'Residents with sub-users retrieved successfully' })
+  async getResidentsWithSubUsers(
+    @Query('building') building?: string,
+    @Query('search') search?: string,
+    @Query('role') role?: string,
+  ) {
+    return this.adminService.getResidentsWithSubUsers(building, search, role);
+  }
+
+    @Get('residents/stats/summary')
   @UseGuards(JwtAuthGuard)
   async getResidentsSummary() {
     return this.adminService.getResidentsSummary();

@@ -22,7 +22,7 @@ import {
 import { ComplaintsService } from './complaints.service';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CloudinaryService } from '../common/cloudinary.service';
+import { S3Service } from '../common/s3.service';
 
 @ApiTags('Complaints')
 @ApiBearerAuth('JWT-auth')
@@ -31,8 +31,8 @@ import { CloudinaryService } from '../common/cloudinary.service';
 export class ComplaintsController {
   constructor(
     private readonly complaintsService: ComplaintsService,
-    private readonly cloudinaryService: CloudinaryService,
-  ) {}
+    private readonly s3Service: S3Service,
+  ) { }
 
   @Post()
   @ApiOperation({
@@ -95,7 +95,7 @@ export class ComplaintsController {
   @ApiOperation({
     summary: 'Upload complaint attachments',
     description:
-      'Uploads attachment files (images, documents) for complaints to Cloudinary. Returns the file URLs to use when creating complaints.',
+      'Uploads attachment files (images, documents) for complaints to S3. Returns the file URLs to use when creating complaints.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiResponse({
@@ -104,7 +104,7 @@ export class ComplaintsController {
     schema: {
       example: {
         attachmentUrls: [
-          'https://res.cloudinary.com/dbfphetiv/image/upload/v1234567890/complaints/attachments/image.jpg',
+          'https://bucket-name.s3.region.amazonaws.com/complaints/attachments/image.jpg',
         ],
       },
     },
@@ -119,7 +119,7 @@ export class ComplaintsController {
 
     const attachmentUrls = await Promise.all(
       files.map((file) =>
-        this.cloudinaryService.uploadComplaintAttachment(file),
+        this.s3Service.uploadComplaintAttachment(file),
       ),
     );
 

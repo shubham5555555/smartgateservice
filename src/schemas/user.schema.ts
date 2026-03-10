@@ -6,6 +6,7 @@ export type UserDocument = User & Document;
 export enum UserRole {
   OWNER = 'Owner',
   TENANT = 'Tenant',
+  FAMILY_MEMBER = 'Family Member',
 }
 
 @Schema({ timestamps: true })
@@ -15,7 +16,7 @@ export class User {
 
   @Prop({ unique: true, sparse: true })
   email?: string;
- 
+
   @Prop({ index: true })
   normalizedEmail?: string;
 
@@ -90,6 +91,12 @@ export class User {
 
   @Prop()
   fcmToken?: string; // Firebase Cloud Messaging token for push notifications
+
+  @Prop()
+  parentUserId?: string; // For family members and tenants linking to owner
+
+  @Prop()
+  relation?: string; // Relationship to the owner (e.g. Son, Daughter, Renter)
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

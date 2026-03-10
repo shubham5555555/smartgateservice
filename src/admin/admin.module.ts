@@ -89,5 +89,5 @@ import { CommonModule } from '../common/common.module';
   providers: [AdminService],
 })
 export class AdminModule {
-  // CloudinaryService is available globally via CommonModule
+  // S3Service is available globally via CommonModule
 }

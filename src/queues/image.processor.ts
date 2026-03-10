@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Worker } from 'bullmq';
 import IORedis from 'ioredis';
-import { CloudinaryService } from '../common/cloudinary.service';
+import { S3Service } from '../common/s3.service';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Building, BuildingDocument } from '../schemas/building.schema';
@@ -15,9 +15,9 @@ export class ImageProcessor implements OnModuleInit {
   private readonly logger = new Logger(ImageProcessor.name);
 
   constructor(
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly s3Service: S3Service,
     @InjectModel(Building.name) private buildingModel: Model<BuildingDocument>,
-  ) {}
+  ) { }
 
   onModuleInit() {
     const worker = new Worker(
@@ -34,7 +34,7 @@ export class ImageProcessor implements OnModuleInit {
             buffer: fileBuffer,
           } as Express.Multer.File;
 
-          const url = await this.cloudinaryService.uploadFile(fakeFile, 'buildings');
+          const url = await this.s3Service.uploadFile(fakeFile, 'buildings');
           const building = await this.buildingModel.findById(buildingId).exec();
           if (building) {
             building.image = url;
@@ -51,7 +51,7 @@ export class ImageProcessor implements OnModuleInit {
               mimetype: f.mimetype,
               buffer: fileBuffer,
             } as Express.Multer.File;
-            const url = await this.cloudinaryService.uploadFile(fakeFile, 'buildings');
+            const url = await this.s3Service.uploadFile(fakeFile, 'buildings');
             uploaded.push(url);
           }
           const building = await this.buildingModel.findById(buildingId).exec();
@@ -68,7 +68,7 @@ export class ImageProcessor implements OnModuleInit {
             mimetype,
             buffer: fileBuffer,
           } as Express.Multer.File;
-          const url = await this.cloudinaryService.uploadFile(fakeFile, 'buildings/flats');
+          const url = await this.s3Service.uploadFile(fakeFile, 'buildings/flats');
           const building = await this.buildingModel.findById(buildingId).exec();
           if (building) {
             let flatFound = false;

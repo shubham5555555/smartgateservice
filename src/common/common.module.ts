@@ -1,7 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
-import { CloudinaryService } from './cloudinary.service';
+import { S3Service } from './s3.service';
 import { EmailService } from './email.service';
 import { EscalationService } from './escalation.service';
 import { CacheService } from './cache.service';
@@ -19,7 +19,7 @@ import { Reminder, ReminderSchema } from '../schemas/reminder.schema';
       { name: Reminder.name, schema: ReminderSchema },
     ]),
   ],
-  providers: [CloudinaryService, EmailService, EscalationService, CacheService, QueueService, LoggerService],
-  exports: [CloudinaryService, EmailService, EscalationService, CacheService, QueueService, LoggerService],
+  providers: [S3Service, EmailService, EscalationService, CacheService, QueueService, LoggerService],
+  exports: [S3Service, EmailService, EscalationService, CacheService, QueueService, LoggerService],
 })
-export class CommonModule {}
+export class CommonModule { }

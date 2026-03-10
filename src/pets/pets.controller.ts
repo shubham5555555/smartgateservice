@@ -24,7 +24,7 @@ import { PetsService } from './pets.service';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { UpdatePetDto } from './dto/update-pet.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CloudinaryService } from '../common/cloudinary.service';
+import { S3Service } from '../common/s3.service';
 
 @ApiTags('Pets')
 @ApiBearerAuth('JWT-auth')
@@ -33,8 +33,8 @@ import { CloudinaryService } from '../common/cloudinary.service';
 export class PetsController {
   constructor(
     private readonly petsService: PetsService,
-    private readonly cloudinaryService: CloudinaryService,
-  ) {}
+    private readonly s3Service: S3Service,
+  ) { }
 
   @Post()
   create(@Request() req, @Body() createPetDto: CreatePetDto) {
@@ -80,7 +80,7 @@ export class PetsController {
   @ApiOperation({
     summary: 'Upload pet photo',
     description:
-      'Uploads a pet photo to Cloudinary and returns the photo URL to use when creating or updating pets.',
+      'Uploads a pet photo to S3 and returns the photo URL to use when creating or updating pets.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiResponse({
@@ -89,7 +89,7 @@ export class PetsController {
     schema: {
       example: {
         photoUrl:
-          'https://res.cloudinary.com/dbfphetiv/image/upload/v1234567890/pets/photos/pet.jpg',
+          'https://bucket-name.s3.region.amazonaws.com/pets/photos/pet.jpg',
       },
     },
   })
@@ -101,7 +101,7 @@ export class PetsController {
       throw new Error('No file provided');
     }
 
-    const photoUrl = await this.cloudinaryService.uploadPetPhoto(file);
+    const photoUrl = await this.s3Service.uploadPetPhoto(file);
     return { photoUrl };
   }
 }

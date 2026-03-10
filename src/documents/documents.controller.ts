@@ -21,7 +21,7 @@ import {
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CloudinaryService } from '../common/cloudinary.service';
+import { S3Service } from '../common/s3.service';
 
 @ApiTags('Documents')
 @ApiBearerAuth('JWT-auth')
@@ -30,8 +30,8 @@ import { CloudinaryService } from '../common/cloudinary.service';
 export class DocumentsController {
   constructor(
     private readonly documentsService: DocumentsService,
-    private readonly cloudinaryService: CloudinaryService,
-  ) {}
+    private readonly s3Service: S3Service,
+  ) { }
 
   @Post()
   @ApiOperation({
@@ -58,7 +58,7 @@ export class DocumentsController {
   @ApiOperation({
     summary: 'Upload document file',
     description:
-      'Uploads a document file to Cloudinary and returns the file URL.',
+      'Uploads a document file to AWS S3 and returns the file URL.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiResponse({
@@ -67,7 +67,7 @@ export class DocumentsController {
     schema: {
       example: {
         fileUrl:
-          'https://res.cloudinary.com/dbfphetiv/raw/upload/v1234567890/documents/file.pdf',
+          'https://s3.ap-south-1.amazonaws.com/my-bucket/documents/file.pdf',
         fileName: 'document.pdf',
         fileSize: 1024000,
       },
@@ -81,7 +81,7 @@ export class DocumentsController {
       throw new Error('No file provided');
     }
 
-    const fileUrl = await this.cloudinaryService.uploadDocument(file);
+    const fileUrl = await this.s3Service.uploadDocument(file);
 
     return {
       fileUrl,

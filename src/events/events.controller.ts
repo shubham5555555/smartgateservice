@@ -27,7 +27,7 @@ import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { RsvpEventDto } from './dto/rsvp-event.dto';
-import { CloudinaryService } from '../common/cloudinary.service';
+import { S3Service } from '../common/s3.service';
 
 @ApiTags('Events')
 @ApiBearerAuth('JWT-auth')
@@ -36,8 +36,8 @@ import { CloudinaryService } from '../common/cloudinary.service';
 export class EventsController {
   constructor(
     private readonly eventsService: EventsService,
-    private readonly cloudinaryService: CloudinaryService,
-  ) {}
+    private readonly s3Service: S3Service,
+  ) { }
 
   @Post()
   async create(@Body() createEventDto: CreateEventDto, @Request() req) {
@@ -91,7 +91,7 @@ export class EventsController {
   @ApiOperation({
     summary: 'Add event photo',
     description:
-      'Uploads a photo to Cloudinary and adds it to the event. Only the event creator can add photos.',
+      'Uploads a photo to S3 and adds it to the event. Only the event creator can add photos.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiParam({ name: 'id', description: 'Event ID' })
@@ -112,7 +112,7 @@ export class EventsController {
       throw new Error('No file provided');
     }
 
-    const photoUrl = await this.cloudinaryService.uploadEventPhoto(file);
+    const photoUrl = await this.s3Service.uploadEventPhoto(file);
     return this.eventsService.addPhoto(id, photoUrl, req.user.userId);
   }
 

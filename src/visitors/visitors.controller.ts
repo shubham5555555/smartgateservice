@@ -6,7 +6,11 @@ import {
   Param,
   UseGuards,
   Request,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { S3Service } from '../common/s3.service';
 import {
   ApiTags,
   ApiOperation,
@@ -23,7 +27,10 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 @ApiTags('Visitors')
 @Controller('visitors')
 export class VisitorsController {
-  constructor(private readonly visitorsService: VisitorsService) {}
+  constructor(
+    private readonly visitorsService: VisitorsService,
+    private readonly s3Service: S3Service,
+  ) {}
 
   // Public endpoints for visitor self-registration
   @Post('self-register')
@@ -140,5 +147,20 @@ export class VisitorsController {
   @ApiResponse({ status: 200, description: 'Exit recorded successfully' })
   async recordExit(@Param('id') id: string) {
     return this.visitorsService.recordExit(id);
+  }
+
+  @Post('upload-photo')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @UseInterceptors(FileInterceptor('photo'))
+  @ApiOperation({ summary: 'Upload visitor photo to S3' })
+  async uploadVisitorPhoto(
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new Error('No file provided');
+    }
+    const photoUrl = await this.s3Service.uploadVisitorPhoto(file);
+    return { photoUrl };
   }
 }

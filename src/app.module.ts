@@ -42,7 +42,7 @@ import { MetricsController } from './metrics/metrics.controller';
       }),
       inject: [ConfigService],
     }),
-    CommonModule, // Global module for CloudinaryService
+    CommonModule, // Global module for S3Service
     AuthModule,
     UsersModule,
     StaffModule,
@@ -67,4 +67,4 @@ import { MetricsController } from './metrics/metrics.controller';
   controllers: [AppController, MetricsController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule { }

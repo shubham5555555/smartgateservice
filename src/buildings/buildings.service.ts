@@ -14,7 +14,7 @@ import {
   Flat,
 } from '../schemas/building.schema';
 import { User } from '../schemas/user.schema';
-import { CloudinaryService } from '../common/cloudinary.service';
+import { S3Service } from '../common/s3.service';
 import { QueueService } from '../queues/queue.service';
 
 @Injectable()
@@ -22,9 +22,9 @@ export class BuildingsService {
   constructor(
     @InjectModel(Building.name) private buildingModel: Model<BuildingDocument>,
     @InjectModel(User.name) private userModel: Model<User>,
-    private cloudinaryService: CloudinaryService,
+    private s3Service: S3Service,
     private queueService: QueueService,
-  ) {}
+  ) { }
 
   async createBuilding(createBuildingDto: any) {
     const {

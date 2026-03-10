@@ -12,7 +12,7 @@ import {
   ComplaintDocument,
   ComplaintStatus,
 } from '../schemas/complaint.schema';
-import { User, UserDocument } from '../schemas/user.schema';
+import { User, UserDocument, UserRole } from '../schemas/user.schema';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { EscalationService } from '../common/escalation.service';
 
@@ -55,7 +55,6 @@ export class ComplaintsService {
         complaint.dueDate = new Date(createComplaintDto.dueDate);
       }
 
-      // Initialize escalation matrix
       await this.escalationService.initializeComplaintEscalation(complaint);
 
       return await complaint.save();
@@ -70,8 +69,26 @@ export class ComplaintsService {
   }
 
   async getComplaintsByUser(userId: string) {
-    return this.complaintModel
-      .find({ userId: new Types.ObjectId(userId) })
+    const user = await this.userModel.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Build list of userIds whose complaints to fetch
+    const userIds: Types.ObjectId[] = [new Types.ObjectId(userId)];
+
+    // If owner, also include sub-users' complaints
+    if (user.role === UserRole.OWNER) {
+      const subUsers = await this.userModel
+        .find({ parentUserId: userId })
+        .select('_id')
+        .lean();
+      subUsers.forEach((su: any) => userIds.push(new Types.ObjectId(su._id.toString())));
+    }
+
+    const complaints = await this.complaintModel
+      .find({ userId: { $in: userIds } })
+      .populate('userId', 'fullName role relation')
       .populate('assignedTo', 'name role phoneNumber')
       .populate('resolvedBy', 'name role')
       .populate('history.by', 'name role')
@@ -79,12 +96,14 @@ export class ComplaintsService {
       .populate('comments.byStaff', 'name role')
       .sort({ createdAt: -1 })
       .exec();
+
+    return complaints;
   }
 
   async getComplaintById(id: string) {
     const complaint = await this.complaintModel
       .findById(id)
-      .populate('userId', 'fullName phoneNumber building flatNo')
+      .populate('userId', 'fullName phoneNumber building flatNo role relation')
       .populate('assignedTo', 'name role phoneNumber')
       .populate('resolvedBy', 'name role')
       .populate('history.by', 'name role')
