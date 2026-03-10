@@ -51,7 +51,11 @@ export class Event {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   createdBy: Types.ObjectId;
 
-  @Prop({ type: String, enum: Object.values(EventStatus), default: EventStatus.DRAFT })
+  @Prop({
+    type: String,
+    enum: Object.values(EventStatus),
+    default: EventStatus.DRAFT,
+  })
   status: EventStatus;
 
   @Prop({ default: 0 })
@@ -60,7 +64,10 @@ export class Event {
   @Prop({ default: 0 })
   currentAttendees: number;
 
-  @Prop({ type: [{ userId: Types.ObjectId, userName: String, rsvpDate: Date }], default: [] })
+  @Prop({
+    type: [{ userId: Types.ObjectId, userName: String, rsvpDate: Date }],
+    default: [],
+  })
   rsvps: Array<{
     userId: Types.ObjectId;
     userName: string;

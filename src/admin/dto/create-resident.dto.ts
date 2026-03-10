@@ -1,4 +1,11 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsEnum, IsString, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsNotEmpty,
+  IsOptional,
+  IsEnum,
+  IsString,
+  MinLength,
+} from 'class-validator';
 
 export enum ResidentType {
   OWNER = 'Owner',

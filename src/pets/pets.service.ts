@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Pet, PetDocument } from '../schemas/pet.schema';
@@ -7,11 +11,12 @@ import { UpdatePetDto } from './dto/update-pet.dto';
 
 @Injectable()
 export class PetsService {
-  constructor(
-    @InjectModel(Pet.name) private petModel: Model<PetDocument>,
-  ) {}
+  constructor(@InjectModel(Pet.name) private petModel: Model<PetDocument>) {}
 
-  async create(userId: string, createPetDto: CreatePetDto): Promise<PetDocument> {
+  async create(
+    userId: string,
+    createPetDto: CreatePetDto,
+  ): Promise<PetDocument> {
     const pet = new this.petModel({
       ...createPetDto,
       userId: new Types.ObjectId(userId),
@@ -20,7 +25,9 @@ export class PetsService {
   }
 
   async findAll(userId: string): Promise<PetDocument[]> {
-    return this.petModel.find({ userId: new Types.ObjectId(userId), isActive: true }).exec();
+    return this.petModel
+      .find({ userId: new Types.ObjectId(userId), isActive: true })
+      .exec();
   }
 
   async findOne(id: string, userId: string): Promise<PetDocument> {
@@ -34,7 +41,11 @@ export class PetsService {
     return pet;
   }
 
-  async update(id: string, userId: string, updatePetDto: UpdatePetDto): Promise<PetDocument> {
+  async update(
+    id: string,
+    userId: string,
+    updatePetDto: UpdatePetDto,
+  ): Promise<PetDocument> {
     const pet = await this.findOne(id, userId);
     Object.assign(pet, updatePetDto);
     return pet.save();
@@ -47,6 +58,9 @@ export class PetsService {
   }
 
   async getAllPets(): Promise<PetDocument[]> {
-    return this.petModel.find({ isActive: true }).populate('userId', 'fullName phoneNumber building flatNo').exec();
+    return this.petModel
+      .find({ isActive: true })
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .exec();
   }
 }

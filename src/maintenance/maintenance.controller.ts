@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { MaintenanceService } from './maintenance.service';
 import { PayMaintenanceDto } from './dto/pay-maintenance.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -20,7 +28,9 @@ export class MaintenanceController {
 
   @Get('total-due')
   async getTotalAmountDue(@Request() req) {
-    const total = await this.maintenanceService.getTotalAmountDue(req.user.userId);
+    const total = await this.maintenanceService.getTotalAmountDue(
+      req.user.userId,
+    );
     return { totalAmountDue: total };
   }
 

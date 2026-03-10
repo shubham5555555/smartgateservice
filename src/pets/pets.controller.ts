@@ -12,7 +12,14 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiParam,
+} from '@nestjs/swagger';
 import { PetsService } from './pets.service';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { UpdatePetDto } from './dto/update-pet.dto';
@@ -45,18 +52,23 @@ export class PetsController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Request() req, @Body() updatePetDto: UpdatePetDto) {
+  update(
+    @Param('id') id: string,
+    @Request() req,
+    @Body() updatePetDto: UpdatePetDto,
+  ) {
     return this.petsService.update(id, req.user.userId, updatePetDto);
   }
 
   @Delete(':id')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Delete pet',
-    description: 'Deletes a pet record. Only the pet owner can delete their pets.',
+    description:
+      'Deletes a pet record. Only the pet owner can delete their pets.',
   })
   @ApiParam({ name: 'id', description: 'Pet ID' })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Pet deleted successfully',
   })
   remove(@Param('id') id: string, @Request() req) {
@@ -65,21 +77,26 @@ export class PetsController {
 
   @Post('upload-photo')
   @UseInterceptors(FileInterceptor('photo'))
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Upload pet photo',
-    description: 'Uploads a pet photo to Cloudinary and returns the photo URL to use when creating or updating pets.',
+    description:
+      'Uploads a pet photo to Cloudinary and returns the photo URL to use when creating or updating pets.',
   })
   @ApiConsumes('multipart/form-data')
-  @ApiResponse({ 
-    status: 201, 
+  @ApiResponse({
+    status: 201,
     description: 'Pet photo uploaded successfully',
     schema: {
       example: {
-        photoUrl: 'https://res.cloudinary.com/dbfphetiv/image/upload/v1234567890/pets/photos/pet.jpg',
+        photoUrl:
+          'https://res.cloudinary.com/dbfphetiv/image/upload/v1234567890/pets/photos/pet.jpg',
       },
     },
   })
-  async uploadPetPhoto(@Request() req, @UploadedFile() file: Express.Multer.File) {
+  async uploadPetPhoto(
+    @Request() req,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
     if (!file) {
       throw new Error('No file provided');
     }

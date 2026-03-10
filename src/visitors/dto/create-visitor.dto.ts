@@ -1,4 +1,13 @@
-import { IsNotEmpty, IsString, IsOptional, IsEnum, IsBoolean, IsDateString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsBoolean,
+  IsDateString,
+  IsNumber,
+  Min,
+} from 'class-validator';
 import { VisitorType } from '../../schemas/visitor.schema';
 
 export class CreateVisitorDto {
@@ -25,4 +34,13 @@ export class CreateVisitorDto {
   @IsOptional()
   @IsDateString()
   expectedDate?: string;
+
+  @IsOptional()
+  @IsString()
+  vehicleNumber?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  guestCount?: number;
 }

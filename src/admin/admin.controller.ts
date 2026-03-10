@@ -1,5 +1,29 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Request, UseInterceptors, UploadedFiles, UnauthorizedException } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody, ApiParam, ApiQuery, ApiConsumes } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+  UseInterceptors,
+  UploadedFiles,
+  UnauthorizedException,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiBody,
+  ApiParam,
+  ApiQuery,
+  ApiConsumes,
+} from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -23,13 +47,14 @@ export class AdminController {
 
   // Auth endpoints (no guard)
   @Post('auth/login')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Admin login',
-    description: 'Authenticates an admin user with email and password. Returns a JWT token for accessing protected endpoints.',
+    description:
+      'Authenticates an admin user with email and password. Returns a JWT token for accessing protected endpoints.',
   })
   @ApiBody({ type: LoginDto })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Login successful',
     schema: {
       example: {
@@ -41,8 +66,8 @@ export class AdminController {
       },
     },
   })
-  @ApiResponse({ 
-    status: 401, 
+  @ApiResponse({
+    status: 401,
     description: 'Invalid credentials',
   })
   async login(@Body() loginDto: LoginDto) {
@@ -53,6 +78,12 @@ export class AdminController {
   @Post('guard/auth/login')
   async guardLogin(@Body() body: { phoneNumber: string; password: string }) {
     return this.adminService.guardLogin(body.phoneNumber, body.password);
+  }
+
+  @Get('guard/profile')
+  @UseGuards(JwtAuthGuard)
+  async getGuardProfile(@Request() req) {
+    return this.adminService.getGuardById(req.user.userId);
   }
 
   // Guard Management APIs
@@ -70,15 +101,18 @@ export class AdminController {
 
   @Post('guards')
   @UseGuards(JwtAuthGuard)
-  async createGuard(@Body() body: {
-    guardId: string;
-    phoneNumber: string;
-    password: string;
-    name: string;
-    email?: string;
-    shift?: string;
-    gateNumber?: string;
-  }) {
+  async createGuard(
+    @Body()
+    body: {
+      guardId: string;
+      phoneNumber: string;
+      password: string;
+      name: string;
+      email?: string;
+      shift?: string;
+      gateNumber?: string;
+    },
+  ) {
     return this.adminService.createGuard(body);
   }
 
@@ -96,7 +130,10 @@ export class AdminController {
 
   @Post('guards/:id/reset-password')
   @UseGuards(JwtAuthGuard)
-  async resetGuardPassword(@Param('id') id: string, @Body() body: { password: string }) {
+  async resetGuardPassword(
+    @Param('id') id: string,
+    @Body() body: { password: string },
+  ) {
     return this.adminService.resetGuardPassword(id, body.password);
   }
 
@@ -108,7 +145,10 @@ export class AdminController {
 
   @Put('guard/fcm-token')
   @UseGuards(JwtAuthGuard)
-  async updateGuardFcmToken(@Request() req, @Body() body: { fcmToken: string }) {
+  async updateGuardFcmToken(
+    @Request() req,
+    @Body() body: { fcmToken: string },
+  ) {
     // Extract phone number from JWT token (for guard login)
     const phoneNumber = req.user?.phoneNumber;
     if (!phoneNumber) {
@@ -131,7 +171,10 @@ export class AdminController {
 
   @Post('auth/change-password')
   @UseGuards(JwtAuthGuard)
-  async changePassword(@Request() req, @Body() changePasswordDto: ChangePasswordDto) {
+  async changePassword(
+    @Request() req,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
     return this.adminService.changePassword(
       req.user.email,
       changePasswordDto.currentPassword,
@@ -194,13 +237,19 @@ export class AdminController {
 
   @Post('complaints/:id/assign')
   @UseGuards(JwtAuthGuard)
-  async assignStaff(@Param('id') id: string, @Body() body: { staffId: string }) {
+  async assignStaff(
+    @Param('id') id: string,
+    @Body() body: { staffId: string },
+  ) {
     return this.adminService.assignStaff(id, body.staffId);
   }
 
   @Put('complaints/:id/reassign')
   @UseGuards(JwtAuthGuard)
-  async reassignStaff(@Param('id') id: string, @Body() body: { staffId: string }) {
+  async reassignStaff(
+    @Param('id') id: string,
+    @Body() body: { staffId: string },
+  ) {
     return this.adminService.reassignStaff(id, body.staffId);
   }
 
@@ -210,23 +259,153 @@ export class AdminController {
     return this.adminService.resolveComplaint(id);
   }
 
+  // Reminders APIs
+  @Get('reminders')
+  @UseGuards(JwtAuthGuard)
+  async getAllReminders() {
+    return this.adminService.getAllReminders();
+  }
+
+  @Get('reminders/stats')
+  @UseGuards(JwtAuthGuard)
+  async getReminderStats() {
+    return this.adminService.getReminderStats();
+  }
+
+  @Get('reminders/upcoming')
+  @UseGuards(JwtAuthGuard)
+  async getUpcomingReminders(@Query('limit') limit?: string) {
+    const parsedLimit = limit ? parseInt(limit, 10) : 10;
+    return this.adminService.getUpcomingReminders(parsedLimit);
+  }
+
+  @Get('reminders/overdue')
+  @UseGuards(JwtAuthGuard)
+  async getOverdueReminders() {
+    return this.adminService.getOverdueReminders();
+  }
+
+  @Get('reminders/:id')
+  @UseGuards(JwtAuthGuard)
+  async getReminderById(@Param('id') id: string) {
+    return this.adminService.getReminderById(id);
+  }
+
+  // Escalation APIs
+  @Get('escalation/stats')
+  @UseGuards(JwtAuthGuard)
+  async getEscalationStats() {
+    return this.adminService.getEscalationStats();
+  }
+
+  @Post('complaints/:id/escalate')
+  @UseGuards(JwtAuthGuard)
+  async escalateComplaint(
+    @Param('id') id: string,
+    @Body() body: { toLevel: string; reason: string; escalatedBy: string },
+  ) {
+    return this.adminService.escalateComplaint(
+      id,
+      body.toLevel,
+      body.reason,
+      body.escalatedBy,
+    );
+  }
+
+  @Get('complaints/:id/escalation-history')
+  @UseGuards(JwtAuthGuard)
+  async getComplaintEscalationHistory(@Param('id') id: string) {
+    return this.adminService.getComplaintEscalationHistory(id);
+  }
+
+  @Post('complaints/:id/comments')
+  @UseGuards(JwtAuthGuard)
+  async addComplaintComment(
+    @Param('id') id: string,
+    @Body() body: { comment: string; staffId?: string },
+  ) {
+    return this.adminService.addComplaintComment(id, body.comment, body.staffId);
+  }
+
+  // Contacts APIs (Emergency & Vendor)
+  @Get('contacts')
+  @UseGuards(JwtAuthGuard)
+  async getAllContacts(@Query('type') type?: string) {
+    return this.adminService.getAllContacts(type);
+  }
+
+  @Get('contacts/:id')
+  @UseGuards(JwtAuthGuard)
+  async getContactById(@Param('id') id: string) {
+    return this.adminService.getContactById(id);
+  }
+
+  @Post('contacts')
+  @UseGuards(JwtAuthGuard)
+  async createContact(@Body() contactData: any) {
+    return this.adminService.createContact(contactData);
+  }
+
+  @Put('contacts/:id')
+  @UseGuards(JwtAuthGuard)
+  async updateContact(@Param('id') id: string, @Body() contactData: any) {
+    return this.adminService.updateContact(id, contactData);
+  }
+
+  @Put('contacts/:id/toggle-active')
+  @UseGuards(JwtAuthGuard)
+  async toggleContactActive(@Param('id') id: string) {
+    return this.adminService.toggleContactActive(id);
+  }
+
+  @Delete('contacts/:id')
+  @UseGuards(JwtAuthGuard)
+  async deleteContact(@Param('id') id: string) {
+    return this.adminService.deleteContact(id);
+  }
+
   // Billing APIs
+  @Get('billing/stats')
+  @UseGuards(JwtAuthGuard)
+  async getMaintenanceOverallStats() {
+    return this.adminService.getMaintenanceOverallStats();
+  }
+
   @Get('billing/summary')
   @UseGuards(JwtAuthGuard)
-  async getBillingSummary(@Query('month') month: string, @Query('year') year: string) {
+  async getBillingSummary(
+    @Query('month') month: string,
+    @Query('year') year: string,
+  ) {
     return this.adminService.getBillingSummary(month, year);
   }
 
   @Get('billing/entries')
   @UseGuards(JwtAuthGuard)
-  async getBillingEntries(@Query('status') status?: 'Paid' | 'Unpaid') {
-    return this.adminService.getBillingEntries(status);
+  async getBillingEntries(
+    @Query('status') status?: 'Paid' | 'Unpaid' | 'Overdue',
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.getBillingEntries(status, search);
   }
 
   @Put('billing/:id/mark-paid')
   @UseGuards(JwtAuthGuard)
-  async markAsPaid(@Param('id') id: string) {
-    return this.adminService.markAsPaid(id);
+  async markAsPaid(
+    @Param('id') id: string,
+    @Body() body: { paymentMethod: string; transactionId?: string },
+  ) {
+    return this.adminService.markBillingAsPaid(
+      id,
+      body.paymentMethod,
+      body.transactionId,
+    );
+  }
+
+  @Post('billing/mark-overdue')
+  @UseGuards(JwtAuthGuard)
+  async markBulkOverdue() {
+    return this.adminService.markBulkOverdue();
   }
 
   @Post('billing/send-reminders')
@@ -288,7 +467,7 @@ export class AdminController {
   @Post('notices')
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FilesInterceptor('attachments', 10))
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Create notice with attachments',
     description: 'Creates a notice and uploads attachment files to Cloudinary.',
   })
@@ -298,10 +477,12 @@ export class AdminController {
     @UploadedFiles() files?: Express.Multer.File[],
   ) {
     let attachmentUrls: string[] = [];
-    
+
     if (files && files.length > 0) {
       attachmentUrls = await Promise.all(
-        files.map((file) => this.cloudinaryService.uploadFile(file, 'notices/attachments'))
+        files.map((file) =>
+          this.cloudinaryService.uploadFile(file, 'notices/attachments'),
+        ),
       );
     }
 
@@ -333,8 +514,60 @@ export class AdminController {
   async getAllStaff(
     @Query('type') type?: StaffType,
     @Query('search') search?: string,
+    @Query('includeInactive') includeInactive?: string,
   ) {
-    return this.adminService.getAllStaff(type, search);
+    return this.adminService.getAllStaff(type, search, includeInactive === 'true');
+  }
+
+  // Specific routes MUST come before /:id to avoid NestJS matching them as the id param
+  @Get('staff/available')
+  @UseGuards(JwtAuthGuard)
+  async getAvailableStaff() {
+    return this.adminService.getAvailableStaff();
+  }
+
+  @Get('staff/type/:type')
+  @UseGuards(JwtAuthGuard)
+  async getStaffByType(@Param('type') type: StaffType) {
+    return this.adminService.getStaffByType(type);
+  }
+
+  @Get('staff/stats/summary')
+  @UseGuards(JwtAuthGuard)
+  async getStaffSummary() {
+    return this.adminService.getStaffSummary();
+  }
+
+  @Get('staff/:id/activity')
+  @UseGuards(JwtAuthGuard)
+  async getStaffActivityAdmin(
+    @Param('id') id: string,
+    @Query('month') month?: string,
+    @Query('year') year?: string,
+  ) {
+    return this.adminService.getStaffActivityAdmin(
+      id,
+      month ? parseInt(month) : undefined,
+      year ? parseInt(year) : undefined,
+    );
+  }
+
+  @Post('staff/:id/check-in')
+  @UseGuards(JwtAuthGuard)
+  async adminCheckIn(@Param('id') id: string) {
+    return this.adminService.adminCheckIn(id);
+  }
+
+  @Post('staff/:id/check-out')
+  @UseGuards(JwtAuthGuard)
+  async adminCheckOut(@Param('id') id: string) {
+    return this.adminService.adminCheckOut(id);
+  }
+
+  @Patch('staff/:id/toggle-active')
+  @UseGuards(JwtAuthGuard)
+  async toggleStaffActive(@Param('id') id: string) {
+    return this.adminService.toggleStaffActive(id);
   }
 
   @Get('staff/:id')
@@ -351,7 +584,10 @@ export class AdminController {
 
   @Put('staff/:id')
   @UseGuards(JwtAuthGuard)
-  async updateStaff(@Param('id') id: string, @Body() updateStaffDto: UpdateStaffAdminDto) {
+  async updateStaff(
+    @Param('id') id: string,
+    @Body() updateStaffDto: UpdateStaffAdminDto,
+  ) {
     return this.adminService.updateStaff(id, updateStaffDto);
   }
 
@@ -361,33 +597,60 @@ export class AdminController {
     return this.adminService.deleteStaff(id);
   }
 
-  @Get('staff/type/:type')
-  @UseGuards(JwtAuthGuard)
-  async getStaffByType(@Param('type') type: StaffType) {
-    return this.adminService.getStaffByType(type);
-  }
-
-  @Get('staff/available')
-  @UseGuards(JwtAuthGuard)
-  async getAvailableStaff() {
-    return this.adminService.getAvailableStaff();
-  }
-
-  @Get('staff/stats/summary')
-  @UseGuards(JwtAuthGuard)
-  async getStaffSummary() {
-    return this.adminService.getStaffSummary();
-  }
-
   // Residents APIs
+  @Get('residents/pending')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Get pending resident approvals',
+    description:
+      'Returns all residents who have completed registration but are waiting for admin approval.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Pending residents retrieved successfully',
+  })
+  async getPendingResidents() {
+    const result = await this.adminService.getPendingResidents();
+    // Ensure we return the cleaned array, not raw MongoDB documents
+    console.log(
+      'Controller: result type:',
+      Array.isArray(result) ? 'array' : typeof result,
+    );
+    console.log(
+      'Controller: result length:',
+      Array.isArray(result) ? result.length : 'N/A',
+    );
+    if (Array.isArray(result) && result.length > 0) {
+      console.log('Controller: first item keys:', Object.keys(result[0]));
+    } else {
+      console.log('Controller: result value:', JSON.stringify(result, null, 2));
+    }
+    return Array.isArray(result) ? result : [];
+  }
+
   @Get('residents')
   @UseGuards(JwtAuthGuard)
   async getAllResidents(
     @Query('building') building?: string,
     @Query('residentType') residentType?: string,
     @Query('search') search?: string,
+    @Query('pendingApproval') pendingApproval?: string,
   ) {
-    return this.adminService.getAllResidents(building, residentType, search);
+    return this.adminService.getAllResidents(
+      building,
+      residentType,
+      search,
+      pendingApproval === 'true',
+    );
+  }
+
+  @Get('residents/lookup')
+  @UseGuards(JwtAuthGuard)
+  async lookupResidentByFlat(
+    @Query('building') building: string,
+    @Query('flat') flat: string,
+  ) {
+    return this.adminService.lookupResidentByFlat(building, flat);
   }
 
   @Get('residents/:id')
@@ -404,7 +667,10 @@ export class AdminController {
 
   @Put('residents/:id')
   @UseGuards(JwtAuthGuard)
-  async updateResident(@Param('id') id: string, @Body() updateResidentDto: UpdateResidentDto) {
+  async updateResident(
+    @Param('id') id: string,
+    @Body() updateResidentDto: UpdateResidentDto,
+  ) {
     return this.adminService.updateResident(id, updateResidentDto);
   }
 
@@ -420,6 +686,66 @@ export class AdminController {
     return this.adminService.getResidentsSummary();
   }
 
+  @Post('residents/:id/approve')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Approve resident registration',
+    description:
+      'Approves a resident registration. The resident will receive a welcome email and can now login.',
+  })
+  @ApiParam({ name: 'id', description: 'Resident ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Resident approved successfully',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Resident not found',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Email not verified or profile not completed',
+  })
+  async approveResident(@Param('id') id: string) {
+    return this.adminService.approveResident(id);
+  }
+
+  @Post('residents/:id/reject')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Reject resident registration',
+    description:
+      'Rejects a resident registration. The user account will be deleted.',
+  })
+  @ApiParam({ name: 'id', description: 'Resident ID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        reason: {
+          type: 'string',
+          description: 'Reason for rejection',
+          example: 'Incomplete documentation',
+        },
+      },
+    },
+    required: false,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Resident registration rejected',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Resident not found',
+  })
+  async rejectResident(
+    @Param('id') id: string,
+    @Body() body?: { reason?: string },
+  ) {
+    return this.adminService.rejectResident(id, body?.reason);
+  }
+
   // Vehicles APIs
   @Get('vehicles')
   @UseGuards(JwtAuthGuard)
@@ -428,6 +754,53 @@ export class AdminController {
   }
 
   // Parking Management APIs
+  @Get('parking/by-building')
+  @UseGuards(JwtAuthGuard)
+  async getParkingByBuilding() {
+    return this.adminService.getParkingByBuilding();
+  }
+
+  @Get('parking/buildings/:buildingId/slots')
+  @UseGuards(JwtAuthGuard)
+  async getParkingSlotsByBuilding(@Param('buildingId') buildingId: string) {
+    return this.adminService.getParkingSlotsByBuilding(buildingId);
+  }
+
+  @Post('parking/slots/bulk')
+  @UseGuards(JwtAuthGuard)
+  async bulkCreateParkingSlots(
+    @Body()
+    body: {
+      buildingId: string;
+      floor: string;
+      parkingType: string;
+      prefix: string;
+      startNumber: number;
+      count: number;
+    },
+  ) {
+    return this.adminService.bulkCreateParkingSlots(
+      body.buildingId,
+      body.floor,
+      body.parkingType,
+      body.prefix,
+      body.startNumber,
+      body.count,
+    );
+  }
+
+  @Delete('parking/slots/:id')
+  @UseGuards(JwtAuthGuard)
+  async deleteParkingSlot(@Param('id') slotId: string) {
+    return this.adminService.deleteParkingSlot(slotId);
+  }
+
+  @Post('parking/slots/:id/release')
+  @UseGuards(JwtAuthGuard)
+  async releaseParkingSlot(@Param('id') slotId: string) {
+    return this.adminService.releaseParkingSlot(slotId);
+  }
+
   @Get('parking/slots')
   @UseGuards(JwtAuthGuard)
   async getAllParkingSlots() {
@@ -444,9 +817,15 @@ export class AdminController {
   @UseGuards(JwtAuthGuard)
   async assignParkingSlot(
     @Param('id') slotId: string,
-    @Body() body: { userId: string; licensePlate?: string; vehicleName?: string },
+    @Body()
+    body: { userId: string; licensePlate?: string; vehicleName?: string },
   ) {
-    return this.adminService.assignParkingSlot(slotId, body.userId, body.licensePlate, body.vehicleName);
+    return this.adminService.assignParkingSlot(
+      slotId,
+      body.userId,
+      body.licensePlate,
+      body.vehicleName,
+    );
   }
 
   @Post('parking/applications/:id/approve')
@@ -455,7 +834,10 @@ export class AdminController {
     @Param('id') applicationId: string,
     @Body() body: { slotId?: string },
   ) {
-    return this.adminService.approveParkingApplication(applicationId, body.slotId);
+    return this.adminService.approveParkingApplication(
+      applicationId,
+      body.slotId,
+    );
   }
 
   @Post('parking/applications/:id/reject')
@@ -477,14 +859,53 @@ export class AdminController {
     @Param('id') id: string,
     @Body() body: { paymentMethod: string; transactionId: string },
   ) {
-    return this.adminService.markMaintenancePaid(id, body.paymentMethod, body.transactionId);
+    return this.adminService.markMaintenancePaid(
+      id,
+      body.paymentMethod,
+      body.transactionId,
+    );
   }
 
   // Amenities Booking APIs
+  // Amenity Configuration CRUD
+  @Get('amenities/configs')
+  @UseGuards(JwtAuthGuard)
+  async getAllAmenityConfigs() {
+    return this.adminService.getAllAmenityConfigs();
+  }
+
+  @Post('amenities/configs')
+  @UseGuards(JwtAuthGuard)
+  async createAmenityConfig(@Body() body: any) {
+    return this.adminService.createAmenityConfig(body);
+  }
+
+  @Put('amenities/configs/:id')
+  @UseGuards(JwtAuthGuard)
+  async updateAmenityConfig(@Param('id') id: string, @Body() body: any) {
+    return this.adminService.updateAmenityConfig(id, body);
+  }
+
+  @Delete('amenities/configs/:id')
+  @UseGuards(JwtAuthGuard)
+  async deleteAmenityConfig(@Param('id') id: string) {
+    return this.adminService.deleteAmenityConfig(id);
+  }
+
+  @Get('amenities/stats')
+  @UseGuards(JwtAuthGuard)
+  async getAmenityStats() {
+    return this.adminService.getAmenityStats();
+  }
+
   @Get('amenities/bookings')
   @UseGuards(JwtAuthGuard)
-  async getAllAmenityBookings(@Query('status') status?: string) {
-    return this.adminService.getAllAmenityBookings(status);
+  async getAllAmenityBookings(
+    @Query('status') status?: string,
+    @Query('amenityType') amenityType?: string,
+    @Query('date') date?: string,
+  ) {
+    return this.adminService.getAllAmenityBookings(status, amenityType, date);
   }
 
   @Get('amenities/bookings/:id')
@@ -493,60 +914,134 @@ export class AdminController {
     return this.adminService.getAmenityBookingById(id);
   }
 
+  @Post('amenities/bookings/:id/approve')
+  @UseGuards(JwtAuthGuard)
+  async approveAmenityBooking(@Param('id') id: string) {
+    return this.adminService.approveAmenityBooking(id);
+  }
+
+  @Post('amenities/bookings/:id/complete')
+  @UseGuards(JwtAuthGuard)
+  async completeAmenityBooking(@Param('id') id: string) {
+    return this.adminService.completeAmenityBooking(id);
+  }
+
+  @Post('amenities/bookings/:id/mark-paid')
+  @UseGuards(JwtAuthGuard)
+  async markAmenityPaymentPaid(
+    @Param('id') id: string,
+    @Body() body: { paymentMethod: string; transactionId?: string },
+  ) {
+    return this.adminService.markAmenityPaymentPaid(
+      id,
+      body.paymentMethod,
+      body.transactionId,
+    );
+  }
+
   @Post('amenities/bookings/:id/cancel')
   @UseGuards(JwtAuthGuard)
   async cancelAmenityBooking(@Param('id') id: string) {
     return this.adminService.cancelAmenityBooking(id);
   }
 
-  // Packages APIs
-  @Get('packages')
+  // Parcels APIs
+  @Get('parcels/stats')
   @UseGuards(JwtAuthGuard)
-  async getAllPackages(@Query('status') status?: string) {
-    return this.adminService.getAllPackages(status);
+  async getParcelsStats() {
+    return this.adminService.getParcelsStats();
   }
 
-  @Get('packages/pending')
+  @Get('parcels')
   @UseGuards(JwtAuthGuard)
-  async getPendingPackages() {
-    return this.adminService.getPendingPackages();
+  async getAllParcels(
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.getAllParcels(status, search);
   }
 
-  @Get('packages/:id')
+  @Post('parcels')
   @UseGuards(JwtAuthGuard)
-  async getPackageById(@Param('id') id: string) {
-    return this.adminService.getPackageById(id);
+  async adminCreateParcel(@Body() body: any) {
+    return this.adminService.adminCreateParcel(body);
   }
 
-  @Put('packages/:id/status')
+  @Get('parcels/pending')
   @UseGuards(JwtAuthGuard)
-  async updatePackageStatus(
+  async getPendingParcels() {
+    return this.adminService.getPendingParcels();
+  }
+
+  @Get('parcels/:id')
+  @UseGuards(JwtAuthGuard)
+  async getParcelById(@Param('id') id: string) {
+    return this.adminService.getParcelById(id);
+  }
+
+  @Put('parcels/:id/status')
+  @UseGuards(JwtAuthGuard)
+  async updateParcelStatus(
     @Param('id') id: string,
     @Body() body: { status: string; collectedBy?: string; notes?: string },
   ) {
-    return this.adminService.updatePackageStatus(id, body.status, body.collectedBy, body.notes);
+    return this.adminService.updateParcelStatus(
+      id,
+      body.status,
+      body.collectedBy,
+      body.notes,
+    );
   }
 
-  @Put('packages/:id/collect')
+  @Put('parcels/:id/collect')
   @UseGuards(JwtAuthGuard)
-  async collectPackage(
+  async collectParcel(
     @Param('id') id: string,
     @Body() body: { collectedBy: string; notes?: string },
   ) {
-    return this.adminService.updatePackageStatus(id, 'Collected', body.collectedBy, body.notes);
+    return this.adminService.updateParcelStatus(
+      id,
+      'Collected',
+      body.collectedBy,
+      body.notes,
+    );
+  }
+
+  @Put('parcels/:id/return')
+  @UseGuards(JwtAuthGuard)
+  async returnParcel(
+    @Param('id') id: string,
+    @Body() body: { notes?: string },
+  ) {
+    return this.adminService.returnParcel(id, body.notes);
   }
 
   // Documents APIs
+  @Get('documents/stats')
+  @UseGuards(JwtAuthGuard)
+  async getDocumentStats() {
+    return this.adminService.getDocumentStats();
+  }
+
   @Get('documents')
   @UseGuards(JwtAuthGuard)
-  async getAllDocuments() {
-    return this.adminService.getAllDocuments();
+  async getAllDocuments(
+    @Query('search') search?: string,
+    @Query('filter') filter?: 'all' | 'verified' | 'pending',
+  ) {
+    return this.adminService.getAllDocuments(search, filter);
   }
 
   @Put('documents/:id/verify')
   @UseGuards(JwtAuthGuard)
   async verifyDocument(@Param('id') id: string) {
     return this.adminService.verifyDocument(id);
+  }
+
+  @Delete('documents/:id')
+  @UseGuards(JwtAuthGuard)
+  async deleteAdminDocument(@Param('id') id: string) {
+    return this.adminService.deleteAdminDocument(id);
   }
 
   // Emergency Contacts APIs
@@ -574,15 +1069,11 @@ export class AdminController {
     return this.adminService.deleteEmergencyContact(id);
   }
 
-  // Visitors APIs
-  @Get('visitors')
+  // Visitors APIs — specific routes BEFORE /:id
+  @Get('visitors/stats')
   @UseGuards(JwtAuthGuard)
-  async getAllVisitors(
-    @Query('status') status?: string,
-    @Query('type') type?: string,
-    @Query('preApproved') preApproved?: string,
-  ) {
-    return this.adminService.getAllVisitors(status, type, preApproved === 'true');
+  async getVisitorStats() {
+    return this.adminService.getVisitorStats();
   }
 
   @Get('visitors/today')
@@ -595,6 +1086,34 @@ export class AdminController {
   @UseGuards(JwtAuthGuard)
   async getPreApprovedVisitors() {
     return this.adminService.getPreApprovedVisitors();
+  }
+
+  @Post('visitors/verify-qr')
+  @UseGuards(JwtAuthGuard)
+  async verifyVisitorQR(@Body() body: { qrData: string }) {
+    return this.adminService.verifyVisitorQR(body.qrData);
+  }
+
+  @Get('visitors')
+  @UseGuards(JwtAuthGuard)
+  async getAllVisitors(
+    @Query('status') status?: string,
+    @Query('type') type?: string,
+    @Query('search') search?: string,
+    @Query('preApproved') preApproved?: string,
+  ) {
+    return this.adminService.getAllVisitors(
+      status,
+      type,
+      preApproved === 'true',
+      search,
+    );
+  }
+
+  @Get('visitors/:id/status')
+  @UseGuards(JwtAuthGuard)
+  async getVisitorStatus(@Param('id') id: string) {
+    return this.adminService.getVisitorStatus(id);
   }
 
   @Post('visitors/:id/approve')
@@ -621,17 +1140,15 @@ export class AdminController {
     return this.adminService.recordVisitorExit(id);
   }
 
-  @Post('visitors/verify-qr')
+  @Delete('visitors/:id')
   @UseGuards(JwtAuthGuard)
-  async verifyVisitorQR(@Body() body: { qrData: string }) {
-    return this.adminService.verifyVisitorQR(body.qrData);
+  async deleteVisitor(@Param('id') id: string) {
+    return this.adminService.deleteVisitor(id);
   }
 
   @Post('visitors')
   @UseGuards(JwtAuthGuard)
   async createVisitor(@Body() createDto: CreateVisitorDto) {
-    // Admin/Guard can create visitors on behalf of users
-    // If userId is provided, use it; otherwise, use first user as default
     return this.adminService.createVisitor(createDto);
   }
 
@@ -666,20 +1183,6 @@ export class AdminController {
     return this.adminService.deletePet(id);
   }
 
-  // Chat Management
-  @Get('chat/messages')
-  @UseGuards(JwtAuthGuard)
-  async getAllChatMessages(@Query('limit') limit?: string) {
-    const messageLimit = limit ? parseInt(limit, 10) : 100;
-    return this.adminService.getAllChatMessages(messageLimit);
-  }
-
-  @Delete('chat/messages/:id')
-  @UseGuards(JwtAuthGuard)
-  async deleteChatMessage(@Param('id') id: string) {
-    return this.adminService.deleteChatMessage(id);
-  }
-
   // Event Management APIs
   @Get('events')
   @UseGuards(JwtAuthGuard)
@@ -707,6 +1210,15 @@ export class AdminController {
     return this.adminService.updateEvent(id, body);
   }
 
+  @Patch('events/:id/status')
+  @UseGuards(JwtAuthGuard)
+  async updateEventStatus(
+    @Param('id') id: string,
+    @Body('status') status: string,
+  ) {
+    return this.adminService.updateEventStatus(id, status);
+  }
+
   @Delete('events/:id')
   @UseGuards(JwtAuthGuard)
   async deleteEvent(@Param('id') id: string) {
@@ -716,110 +1228,92 @@ export class AdminController {
   // Notification Management APIs
   @Post('notifications/send-to-user')
   @UseGuards(JwtAuthGuard)
-  async sendNotificationToUser(@Body() body: {
-    userId: string;
-    title: string;
-    body: string;
-    data?: Record<string, string>;
-  }) {
-    return this.adminService.sendNotificationToUser(body.userId, body.title, body.body, body.data);
+  async sendNotificationToUser(
+    @Body()
+    body: {
+      userId: string;
+      title: string;
+      body: string;
+      data?: Record<string, string>;
+    },
+  ) {
+    return this.adminService.sendNotificationToUser(
+      body.userId,
+      body.title,
+      body.body,
+      body.data,
+    );
   }
 
   @Post('notifications/send-to-guard')
   @UseGuards(JwtAuthGuard)
-  async sendNotificationToGuard(@Body() body: {
-    guardId: string;
-    title: string;
-    body: string;
-    data?: Record<string, string>;
-  }) {
-    return this.adminService.sendNotificationToGuard(body.guardId, body.title, body.body, body.data);
+  async sendNotificationToGuard(
+    @Body()
+    body: {
+      guardId: string;
+      title: string;
+      body: string;
+      data?: Record<string, string>;
+    },
+  ) {
+    return this.adminService.sendNotificationToGuard(
+      body.guardId,
+      body.title,
+      body.body,
+      body.data,
+    );
   }
 
   @Post('notifications/send-to-multiple')
   @UseGuards(JwtAuthGuard)
-  async sendNotificationToMultiple(@Body() body: {
-    userIds: string[];
-    title: string;
-    body: string;
-    data?: Record<string, string>;
-  }) {
-    return this.adminService.sendNotificationToMultipleUsers(body.userIds, body.title, body.body, body.data);
+  async sendNotificationToMultiple(
+    @Body()
+    body: {
+      userIds: string[];
+      title: string;
+      body: string;
+      data?: Record<string, string>;
+    },
+  ) {
+    return this.adminService.sendNotificationToMultipleUsers(
+      body.userIds,
+      body.title,
+      body.body,
+      body.data,
+    );
   }
 
   @Post('notifications/send-to-all-users')
   @UseGuards(JwtAuthGuard)
-  async sendNotificationToAllUsers(@Body() body: {
-    title: string;
-    body: string;
-    data?: Record<string, string>;
-  }) {
-    return this.adminService.sendNotificationToAllUsers(body.title, body.body, body.data);
+  async sendNotificationToAllUsers(
+    @Body()
+    body: {
+      title: string;
+      body: string;
+      data?: Record<string, string>;
+    },
+  ) {
+    return this.adminService.sendNotificationToAllUsers(
+      body.title,
+      body.body,
+      body.data,
+    );
   }
 
   @Post('notifications/send-to-all-guards')
   @UseGuards(JwtAuthGuard)
-  async sendNotificationToAllGuards(@Body() body: {
-    title: string;
-    body: string;
-    data?: Record<string, string>;
-  }) {
-    return this.adminService.sendNotificationToAllGuards(body.title, body.body, body.data);
-  }
-
-  // Marketplace Management APIs
-  @Get('marketplace/listings')
-  @UseGuards(JwtAuthGuard)
-  async getAllMarketplaceListings(
-    @Query('status') status?: string,
-    @Query('category') category?: string,
-    @Query('search') search?: string,
+  async sendNotificationToAllGuards(
+    @Body()
+    body: {
+      title: string;
+      body: string;
+      data?: Record<string, string>;
+    },
   ) {
-    return this.adminService.getAllMarketplaceListings(status, category, search);
-  }
-
-  @Get('marketplace/listings/:id')
-  @UseGuards(JwtAuthGuard)
-  async getMarketplaceListingById(@Param('id') id: string) {
-    return this.adminService.getMarketplaceListingById(id);
-  }
-
-  @Delete('marketplace/listings/:id')
-  @UseGuards(JwtAuthGuard)
-  async deleteMarketplaceListing(@Param('id') id: string) {
-    return this.adminService.deleteMarketplaceListing(id);
-  }
-
-  @Put('marketplace/listings/:id/status')
-  @UseGuards(JwtAuthGuard)
-  async updateMarketplaceListingStatus(
-    @Param('id') id: string,
-    @Body() body: { status: string },
-  ) {
-    return this.adminService.updateMarketplaceListingStatus(id, body.status);
-  }
-
-  @Get('marketplace/reports')
-  @UseGuards(JwtAuthGuard)
-  async getAllMarketplaceReports(@Query('resolved') resolved?: string) {
-    return this.adminService.getAllMarketplaceReports(resolved === 'true');
-  }
-
-  @Put('marketplace/reports/:id/resolve')
-  @UseGuards(JwtAuthGuard)
-  async resolveMarketplaceReport(@Param('id') id: string) {
-    return this.adminService.resolveMarketplaceReport(id);
-  }
-
-  @Get('marketplace/chats')
-  @UseGuards(JwtAuthGuard)
-  async getAllMarketplaceChats() {
-    return this.adminService.getAllMarketplaceChats();
-  }
-
-  @Get('marketplace/stats')
-  @UseGuards(JwtAuthGuard)
-  async getMarketplaceStats() {
-    return this.adminService.getMarketplaceStats();
+    return this.adminService.sendNotificationToAllGuards(
+      body.title,
+      body.body,
+      body.data,
+    );
   }
 }

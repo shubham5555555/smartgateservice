@@ -1,18 +1,35 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Complaint, ComplaintDocument, ComplaintStatus } from '../schemas/complaint.schema';
+import {
+  Complaint,
+  ComplaintDocument,
+  ComplaintStatus,
+} from '../schemas/complaint.schema';
 import { User, UserDocument } from '../schemas/user.schema';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
+import { EscalationService } from '../common/escalation.service';
 
 @Injectable()
 export class ComplaintsService {
   constructor(
-    @InjectModel(Complaint.name) private complaintModel: Model<ComplaintDocument>,
+    @InjectModel(Complaint.name)
+    private complaintModel: Model<ComplaintDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @Inject(forwardRef(() => EscalationService))
+    private escalationService: EscalationService,
   ) {}
 
-  async createComplaint(userId: string, createComplaintDto: CreateComplaintDto) {
+  async createComplaint(
+    userId: string,
+    createComplaintDto: CreateComplaintDto,
+  ) {
     try {
       const user = await this.userModel.findById(userId);
       if (!user) {
@@ -25,22 +42,41 @@ export class ComplaintsService {
         flatNo: user.flatNo || 'N/A',
         block: user.building || user.block || 'N/A',
         status: ComplaintStatus.OPEN,
+        history: [
+          {
+            action: 'Complaint Created',
+            comment: 'Complaint filed by resident',
+            timestamp: new Date(),
+          },
+        ],
       });
+
+      if (createComplaintDto.dueDate) {
+        complaint.dueDate = new Date(createComplaintDto.dueDate);
+      }
+
+      // Initialize escalation matrix
+      await this.escalationService.initializeComplaintEscalation(complaint);
 
       return await complaint.save();
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      throw new BadRequestException(`Failed to create complaint: ${error.message}`);
+      throw new BadRequestException(
+        `Failed to create complaint: ${error.message}`,
+      );
     }
   }
 
   async getComplaintsByUser(userId: string) {
     return this.complaintModel
       .find({ userId: new Types.ObjectId(userId) })
-      .populate('assignedTo', 'name role')
+      .populate('assignedTo', 'name role phoneNumber')
       .populate('resolvedBy', 'name role')
+      .populate('history.by', 'name role')
+      .populate('comments.by', 'fullName')
+      .populate('comments.byStaff', 'name role')
       .sort({ createdAt: -1 })
       .exec();
   }
@@ -48,8 +84,12 @@ export class ComplaintsService {
   async getComplaintById(id: string) {
     const complaint = await this.complaintModel
       .findById(id)
-      .populate('assignedTo', 'name role')
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .populate('assignedTo', 'name role phoneNumber')
       .populate('resolvedBy', 'name role')
+      .populate('history.by', 'name role')
+      .populate('comments.by', 'fullName')
+      .populate('comments.byStaff', 'name role')
       .exec();
 
     if (!complaint) {
@@ -57,5 +97,61 @@ export class ComplaintsService {
     }
 
     return complaint;
+  }
+
+  async addComment(
+    complaintId: string,
+    comment: string,
+    userId?: string,
+    staffId?: string,
+  ) {
+    const complaint = await this.complaintModel.findById(complaintId);
+    if (!complaint) {
+      throw new NotFoundException('Complaint not found');
+    }
+
+    const commentData: any = {
+      comment,
+      timestamp: new Date(),
+    };
+
+    if (userId) {
+      commentData.by = new Types.ObjectId(userId);
+    }
+    if (staffId) {
+      commentData.byStaff = new Types.ObjectId(staffId);
+    }
+
+    complaint.comments = complaint.comments || [];
+    complaint.comments.push(commentData);
+
+    return await complaint.save();
+  }
+
+  async addToHistory(
+    complaintId: string,
+    action: string,
+    comment?: string,
+    staffId?: string,
+  ) {
+    const complaint = await this.complaintModel.findById(complaintId);
+    if (!complaint) {
+      throw new NotFoundException('Complaint not found');
+    }
+
+    const historyEntry: any = {
+      action,
+      comment,
+      timestamp: new Date(),
+    };
+
+    if (staffId) {
+      historyEntry.by = new Types.ObjectId(staffId);
+    }
+
+    complaint.history = complaint.history || [];
+    complaint.history.push(historyEntry);
+
+    return await complaint.save();
   }
 }

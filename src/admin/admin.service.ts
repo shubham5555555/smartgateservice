@@ -1,61 +1,133 @@
-import { Injectable, UnauthorizedException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { User, UserDocument } from '../schemas/user.schema';
-import { Visitor, VisitorDocument, VisitorStatus, VisitorType } from '../schemas/visitor.schema';
-import { Maintenance, MaintenanceDocument, PaymentStatus } from '../schemas/maintenance.schema';
-import { Staff, StaffDocument, StaffType, StaffStatus } from '../schemas/staff.schema';
-import { Complaint, ComplaintDocument, ComplaintStatus } from '../schemas/complaint.schema';
+import {
+  Visitor,
+  VisitorDocument,
+  VisitorStatus,
+  VisitorType,
+} from '../schemas/visitor.schema';
+import {
+  Maintenance,
+  MaintenanceDocument,
+  PaymentStatus,
+} from '../schemas/maintenance.schema';
+import {
+  Staff,
+  StaffDocument,
+  StaffType,
+  StaffStatus,
+} from '../schemas/staff.schema';
+import {
+  StaffActivity,
+  StaffActivityDocument,
+  ActivityStatus,
+} from '../schemas/staff-activity.schema';
+import {
+  Complaint,
+  ComplaintDocument,
+  ComplaintStatus,
+} from '../schemas/complaint.schema';
 import { Notice, NoticeDocument, NoticeStatus } from '../schemas/notice.schema';
-import { AccessRequest, AccessRequestDocument, AccessRequestStatus } from '../schemas/access-request.schema';
+import {
+  AccessRequest,
+  AccessRequestDocument,
+  AccessRequestStatus,
+} from '../schemas/access-request.schema';
 import { Vehicle, VehicleDocument } from '../schemas/vehicle.schema';
-import { Package, PackageDocument } from '../schemas/package.schema';
+import { Parcel, ParcelDocument } from '../schemas/parcel.schema';
 import { DocumentFile, DocumentDocument } from '../schemas/document.schema';
-import { EmergencyContact, EmergencyContactDocument } from '../schemas/emergency-contact.schema';
+import {
+  EmergencyContact,
+  EmergencyContactDocument,
+} from '../schemas/emergency-contact.schema';
 import { Guard, GuardDocument } from '../schemas/guard.schema';
 import { Pet, PetDocument } from '../schemas/pet.schema';
-import { ChatMessage, ChatMessageDocument } from '../schemas/chat.schema';
 import { Event, EventDocument, EventStatus } from '../schemas/event.schema';
-import { ParkingSlot, ParkingSlotDocument, SlotStatus } from '../schemas/parking-slot.schema';
-import { ParkingApplication, ParkingApplicationDocument, ApplicationStatus } from '../schemas/parking-application.schema';
-import { AmenityBooking, AmenityBookingDocument, BookingStatus } from '../schemas/amenity-booking.schema';
-import { MarketplaceListing, MarketplaceListingDocument, ListingStatus } from '../schemas/marketplace-listing.schema';
-import { MarketplaceReport, MarketplaceReportDocument } from '../schemas/marketplace-report.schema';
-import { MarketplaceChat, MarketplaceChatDocument } from '../schemas/marketplace-chat.schema';
+import {
+  Reminder,
+  ReminderDocument,
+  ReminderStatus,
+} from '../schemas/reminder.schema';
+import { Contact, ContactDocument } from '../schemas/contact.schema';
+import {
+  Building,
+  BuildingDocument,
+} from '../schemas/building.schema';
+import {
+  ParkingSlot,
+  ParkingSlotDocument,
+  SlotStatus,
+  SlotType,
+} from '../schemas/parking-slot.schema';
+import {
+  ParkingApplication,
+  ParkingApplicationDocument,
+  ApplicationStatus,
+} from '../schemas/parking-application.schema';
+import {
+  AmenityBooking,
+  AmenityBookingDocument,
+  BookingStatus,
+} from '../schemas/amenity-booking.schema';
+import { Amenity, AmenityDocument } from '../schemas/amenity.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Inject, forwardRef } from '@nestjs/common';
 import { CreateVisitorDto } from '../visitors/dto/create-visitor.dto';
+import { EmailService } from '../common/email.service';
+import { EscalationService } from '../common/escalation.service';
 
 @Injectable()
 export class AdminService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Visitor.name) private visitorModel: Model<VisitorDocument>,
-    @InjectModel(Maintenance.name) private maintenanceModel: Model<MaintenanceDocument>,
+    @InjectModel(Maintenance.name)
+    private maintenanceModel: Model<MaintenanceDocument>,
     @InjectModel(Staff.name) private staffModel: Model<StaffDocument>,
-    @InjectModel(Complaint.name) private complaintModel: Model<ComplaintDocument>,
+    @InjectModel(StaffActivity.name)
+    private staffActivityModel: Model<StaffActivityDocument>,
+    @InjectModel(Complaint.name)
+    private complaintModel: Model<ComplaintDocument>,
     @InjectModel(Notice.name) private noticeModel: Model<NoticeDocument>,
-    @InjectModel(AccessRequest.name) private accessRequestModel: Model<AccessRequestDocument>,
+    @InjectModel(AccessRequest.name)
+    private accessRequestModel: Model<AccessRequestDocument>,
     @InjectModel(Vehicle.name) private vehicleModel: Model<VehicleDocument>,
-    @InjectModel(Package.name) private packageModel: Model<PackageDocument>,
-    @InjectModel(DocumentFile.name) private documentModel: Model<DocumentDocument>,
-    @InjectModel(EmergencyContact.name) private emergencyContactModel: Model<EmergencyContactDocument>,
+    @InjectModel(Parcel.name) private parcelModel: Model<ParcelDocument>,
+    @InjectModel(DocumentFile.name)
+    private documentModel: Model<DocumentDocument>,
+    @InjectModel(EmergencyContact.name)
+    private emergencyContactModel: Model<EmergencyContactDocument>,
     @InjectModel(Guard.name) private guardModel: Model<GuardDocument>,
     @InjectModel(Pet.name) private petModel: Model<PetDocument>,
-    @InjectModel(ChatMessage.name) private chatMessageModel: Model<ChatMessageDocument>,
     @InjectModel(Event.name) private eventModel: Model<EventDocument>,
-    @InjectModel(ParkingSlot.name) private parkingSlotModel: Model<ParkingSlotDocument>,
-    @InjectModel(ParkingApplication.name) private parkingApplicationModel: Model<ParkingApplicationDocument>,
-    @InjectModel(AmenityBooking.name) private amenityBookingModel: Model<AmenityBookingDocument>,
-    @InjectModel(MarketplaceListing.name) private marketplaceListingModel: Model<MarketplaceListingDocument>,
-    @InjectModel(MarketplaceReport.name) private marketplaceReportModel: Model<MarketplaceReportDocument>,
-    @InjectModel(MarketplaceChat.name) private marketplaceChatModel: Model<MarketplaceChatDocument>,
+    @InjectModel(Reminder.name) private reminderModel: Model<ReminderDocument>,
+    @InjectModel(ParkingSlot.name)
+    private parkingSlotModel: Model<ParkingSlotDocument>,
+    @InjectModel(ParkingApplication.name)
+    private parkingApplicationModel: Model<ParkingApplicationDocument>,
+    @InjectModel(AmenityBooking.name)
+    private amenityBookingModel: Model<AmenityBookingDocument>,
+    @InjectModel(Amenity.name)
+    private amenityModel: Model<AmenityDocument>,
+    @InjectModel(Contact.name) private contactModel: Model<ContactDocument>,
+    @InjectModel(Building.name) private buildingModel: Model<BuildingDocument>,
     private jwtService: JwtService,
+    private configService: ConfigService,
+    private emailService: EmailService,
+    private escalationService: EscalationService,
     @Inject(forwardRef(() => NotificationsService))
     private notificationsService?: NotificationsService,
-  ) {}
+  ) { }
 
   // Auth methods
   async login(email: string, password: string) {
@@ -105,9 +177,14 @@ export class AdminService {
   }
 
   // Guard Auth
-  async guardLogin(phoneNumber: string, password: string) {
-    const guard = await this.guardModel.findOne({ phoneNumber, isActive: true }).exec();
-    
+  async guardLogin(loginId: string, password: string) {
+    const guard = await this.guardModel
+      .findOne({
+        $or: [{ phoneNumber: loginId }, { guardId: loginId }],
+        isActive: true,
+      })
+      .exec();
+
     if (!guard) {
       throw new UnauthorizedException('Invalid phone number or password');
     }
@@ -118,7 +195,12 @@ export class AdminService {
     }
 
     // Generate JWT token for guard
-    const payload = { guardId: guard.guardId, phoneNumber: guard.phoneNumber, sub: guard._id.toString(), role: 'guard' };
+    const payload = {
+      guardId: guard.guardId,
+      phoneNumber: guard.phoneNumber,
+      sub: guard._id.toString(),
+      role: 'guard',
+    };
     const token = this.jwtService.sign(payload);
 
     return {
@@ -149,7 +231,10 @@ export class AdminService {
     if (!guard) {
       throw new NotFoundException('Guard not found');
     }
-    return { message: 'FCM token updated successfully', fcmToken: guard.fcmToken };
+    return {
+      message: 'FCM token updated successfully',
+      fcmToken: guard.fcmToken,
+    };
   }
 
   async getGuardById(id: string) {
@@ -170,27 +255,34 @@ export class AdminService {
     gateNumber?: string;
   }) {
     // Check if guardId or phoneNumber already exists
-    const existingGuard = await this.guardModel.findOne({
-      $or: [{ guardId: data.guardId }, { phoneNumber: data.phoneNumber }],
-    }).exec();
+    const existingGuard = await this.guardModel
+      .findOne({
+        $or: [{ guardId: data.guardId }, { phoneNumber: data.phoneNumber }],
+      })
+      .exec();
 
     if (existingGuard) {
-      throw new UnauthorizedException('Guard ID or phone number already exists');
+      throw new UnauthorizedException(
+        'Guard ID or phone number already exists',
+      );
     }
 
     const guard = new this.guardModel(data);
     return guard.save();
   }
 
-  async updateGuard(id: string, data: Partial<{
-    name: string;
-    email: string;
-    shift: string;
-    gateNumber: string;
-    isActive: boolean;
-    isOnDuty: boolean;
-    password?: string;
-  }>) {
+  async updateGuard(
+    id: string,
+    data: Partial<{
+      name: string;
+      email: string;
+      shift: string;
+      gateNumber: string;
+      isActive: boolean;
+      isOnDuty: boolean;
+      password?: string;
+    }>,
+  ) {
     const guard = await this.guardModel.findById(id).exec();
     if (!guard) {
       throw new NotFoundException('Guard not found');
@@ -230,7 +322,7 @@ export class AdminService {
 
     // Generate a random 6-digit password
     const newPassword = Math.floor(100000 + Math.random() * 900000).toString();
-    
+
     // Set plain password - pre-save hook will hash it automatically
     guard.password = newPassword;
     await guard.save();
@@ -242,7 +334,11 @@ export class AdminService {
     };
   }
 
-  async changePassword(email: string, currentPassword: string, newPassword: string) {
+  async changePassword(
+    email: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
     const adminEmail = process.env.ADMIN_EMAIL || 'admin@smartgate.com';
     const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const hashedPassword = process.env.ADMIN_PASSWORD_HASHED;
@@ -293,13 +389,15 @@ export class AdminService {
   // Dashboard Stats
   async getDashboardStats() {
     const totalFlats = await this.userModel.countDocuments();
-    const occupiedFlats = await this.userModel.countDocuments({ isProfileComplete: true });
-    
+    const occupiedFlats = await this.userModel.countDocuments({
+      isProfileComplete: true,
+    });
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     const todayVisitors = await this.visitorModel.countDocuments({
       createdAt: { $gte: today, $lt: tomorrow },
     });
@@ -328,19 +426,25 @@ export class AdminService {
       status: { $in: [ComplaintStatus.OPEN, ComplaintStatus.ASSIGNED] },
     });
 
+    const activeNotices = await this.noticeModel.countDocuments({
+      status: NoticeStatus.ACTIVE,
+      expiryDate: { $gte: new Date() },
+    });
+
     return {
       totalFlats,
       occupiedFlats,
       todayVisitors,
       duesCollected: duesCollected[0]?.total || 0,
       pendingComplaints,
+      activeNotices,
     };
   }
 
   async getVisitorTrends(period: 'week' | 'month') {
     const days = period === 'week' ? 7 : 30;
     const trends: Array<{ day: string; count: number }> = [];
-    
+
     for (let i = days - 1; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
@@ -353,9 +457,15 @@ export class AdminService {
       });
 
       trends.push({
-        day: period === 'week' 
-          ? date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()
-          : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        day:
+          period === 'week'
+            ? date
+              .toLocaleDateString('en-US', { weekday: 'short' })
+              .toUpperCase()
+            : date.toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            }),
         count,
       });
     }
@@ -373,10 +483,13 @@ export class AdminService {
       createdAt: { $gte: today, $lt: tomorrow },
     });
 
-    const typeCounts = visitors.reduce((acc, visitor) => {
-      acc[visitor.type] = (acc[visitor.type] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const typeCounts = visitors.reduce(
+      (acc, visitor) => {
+        acc[visitor.type] = (acc[visitor.type] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
 
     const total = visitors.length;
     const types = Object.entries(typeCounts).map(([type, count]) => ({
@@ -425,56 +538,351 @@ export class AdminService {
   async getAllComplaints() {
     return this.complaintModel
       .find()
-      .populate('assignedTo', 'name role')
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .populate('assignedTo', 'name role phoneNumber')
       .populate('resolvedBy', 'name role')
+      .populate('history.by', 'name role')
       .sort({ createdAt: -1 })
       .exec();
   }
 
   async getComplaintById(id: string) {
-    return this.complaintModel
+    const complaint = await this.complaintModel
       .findById(id)
-      .populate('assignedTo', 'name role')
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .populate('assignedTo', 'name role phoneNumber')
       .populate('resolvedBy', 'name role')
+      .populate('history.by', 'name role')
+      .populate('comments.by', 'fullName')
+      .populate('comments.byStaff', 'name role')
       .exec();
+
+    if (!complaint) {
+      throw new NotFoundException('Complaint not found');
+    }
+
+    return complaint;
   }
 
-  async updateComplaintStatus(id: string, status: string, note?: string) {
+  async updateComplaintStatus(
+    id: string,
+    status: string,
+    note?: string,
+    staffId?: string,
+  ) {
     const complaint = await this.complaintModel.findById(id);
     if (!complaint) {
-      throw new Error('Complaint not found');
+      throw new NotFoundException('Complaint not found');
     }
-    complaint.status = status as ComplaintStatus;
-    if (note) {
-      complaint.notes = note;
+
+    const historyEntry: any = {
+      action: `Status changed from ${complaint.status} to ${status}`,
+      comment: note,
+      timestamp: new Date(),
+    };
+    if (staffId) {
+      historyEntry.by = new Types.ObjectId(staffId);
     }
-    return complaint.save();
+
+    const setFields: any = { status };
+    if (note) setFields.notes = note;
+    if (
+      status === ComplaintStatus.RESOLVED ||
+      status === ComplaintStatus.CLOSED
+    ) {
+      setFields.resolvedAt = new Date();
+      if (complaint.assignedTo) {
+        setFields.resolvedBy = complaint.assignedTo;
+      }
+    }
+
+    return this.complaintModel.findByIdAndUpdate(
+      id,
+      { $set: setFields, $push: { history: historyEntry } },
+      { new: true, runValidators: false },
+    ).exec();
   }
 
   async assignStaff(id: string, staffId: string) {
     const complaint = await this.complaintModel.findById(id);
     if (!complaint) {
-      throw new Error('Complaint not found');
+      throw new NotFoundException('Complaint not found');
     }
-    complaint.assignedTo = new Types.ObjectId(staffId);
-    complaint.status = ComplaintStatus.ASSIGNED;
-    return complaint.save();
+
+    const staff = await this.staffModel.findById(staffId);
+    if (!staff) {
+      throw new NotFoundException('Staff not found');
+    }
+
+    return this.complaintModel.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          assignedTo: new Types.ObjectId(staffId),
+          status: ComplaintStatus.ASSIGNED,
+        },
+        $push: {
+          history: {
+            action: 'Complaint Assigned',
+            comment: `Assigned to ${staff.name}`,
+            timestamp: new Date(),
+          },
+        },
+      },
+      { new: true, runValidators: false },
+    ).exec();
   }
 
   async reassignStaff(id: string, staffId: string) {
-    return this.assignStaff(id, staffId);
-  }
-
-  async resolveComplaint(id: string) {
     const complaint = await this.complaintModel.findById(id);
     if (!complaint) {
-      throw new Error('Complaint not found');
+      throw new NotFoundException('Complaint not found');
     }
-    complaint.status = ComplaintStatus.RESOLVED;
+
+    const staff = await this.staffModel.findById(staffId);
+    if (!staff) {
+      throw new NotFoundException('Staff not found');
+    }
+
+    return this.complaintModel.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          assignedTo: new Types.ObjectId(staffId),
+        },
+        $push: {
+          history: {
+            action: 'Complaint Reassigned',
+            comment: `Reassigned to ${staff.name}`,
+            timestamp: new Date(),
+          },
+        },
+      },
+      { new: true, runValidators: false },
+    ).exec();
+  }
+
+  async resolveComplaint(id: string, notes?: string, staffId?: string) {
+    const complaint = await this.complaintModel.findById(id);
+    if (!complaint) {
+      throw new NotFoundException('Complaint not found');
+    }
+
+    const historyEntry: any = {
+      action: 'Complaint Resolved',
+      comment: notes,
+      timestamp: new Date(),
+    };
+    if (staffId) {
+      historyEntry.by = new Types.ObjectId(staffId);
+    }
+
+    const setFields: any = {
+      status: ComplaintStatus.RESOLVED,
+      resolvedAt: new Date(),
+    };
+    if (notes) setFields.notes = notes;
     if (complaint.assignedTo) {
-      complaint.resolvedBy = complaint.assignedTo;
+      setFields.resolvedBy = complaint.assignedTo;
+    } else if (staffId) {
+      setFields.resolvedBy = new Types.ObjectId(staffId);
     }
-    return complaint.save();
+
+    return this.complaintModel.findByIdAndUpdate(
+      id,
+      { $set: setFields, $push: { history: historyEntry } },
+      { new: true, runValidators: false },
+    ).exec();
+  }
+
+  async addComplaintComment(id: string, comment: string, staffId?: string) {
+    const exists = await this.complaintModel.exists({ _id: id });
+    if (!exists) {
+      throw new NotFoundException('Complaint not found');
+    }
+
+    const commentData: any = { comment, timestamp: new Date(), isSupport: true };
+    if (staffId) {
+      commentData.byStaff = new Types.ObjectId(staffId);
+    }
+
+    return this.complaintModel.findByIdAndUpdate(
+      id,
+      { $push: { comments: commentData } },
+      { new: true, runValidators: false },
+    ).exec();
+  }
+
+  // Reminders
+  async getAllReminders() {
+    return this.reminderModel
+      .find()
+      .populate('createdBy', 'name email role')
+      .populate('assignedTo', 'name email role')
+      .populate('relatedComplaint', 'title status priority')
+      .populate('relatedMaintenance', 'title status')
+      .populate('relatedEvent', 'title date')
+      .populate('completedBy', 'name role')
+      .sort({ dueDate: 1, priority: -1 })
+      .exec();
+  }
+
+  async getReminderById(id: string) {
+    const reminder = await this.reminderModel
+      .findById(id)
+      .populate('createdBy', 'name email role')
+      .populate('assignedTo', 'name email role phoneNumber')
+      .populate('relatedComplaint', 'title status priority category')
+      .populate('relatedMaintenance', 'title status')
+      .populate('relatedEvent', 'title date')
+      .populate('completedBy', 'name role')
+      .exec();
+
+    if (!reminder) {
+      throw new NotFoundException('Reminder not found');
+    }
+
+    return reminder;
+  }
+
+  async getUpcomingReminders(limit: number = 10) {
+    const now = new Date();
+    return this.reminderModel
+      .find({
+        status: { $in: [ReminderStatus.PENDING, ReminderStatus.SNOOZED] },
+        dueDate: { $gte: now },
+      })
+      .populate('createdBy', 'name role')
+      .populate('assignedTo', 'name role')
+      .populate('relatedComplaint', 'title status')
+      .sort({ dueDate: 1 })
+      .limit(limit)
+      .exec();
+  }
+
+  async getOverdueReminders() {
+    const now = new Date();
+    return this.reminderModel
+      .find({
+        status: { $in: [ReminderStatus.PENDING, ReminderStatus.SNOOZED] },
+        dueDate: { $lt: now },
+      })
+      .populate('createdBy', 'name role')
+      .populate('assignedTo', 'name role')
+      .populate('relatedComplaint', 'title status')
+      .sort({ dueDate: 1 })
+      .exec();
+  }
+
+  async getReminderStats() {
+    const now = new Date();
+
+    const [total, pending, overdue, completed, cancelled] = await Promise.all([
+      this.reminderModel.countDocuments(),
+      this.reminderModel.countDocuments({ status: ReminderStatus.PENDING }),
+      this.reminderModel.countDocuments({
+        status: { $in: [ReminderStatus.PENDING, ReminderStatus.SNOOZED] },
+        dueDate: { $lt: now },
+      }),
+      this.reminderModel.countDocuments({ status: ReminderStatus.COMPLETED }),
+      this.reminderModel.countDocuments({ status: ReminderStatus.CANCELLED }),
+    ]);
+
+    return {
+      total,
+      pending,
+      overdue,
+      completed,
+      cancelled,
+    };
+  }
+
+  // Escalation
+  async getEscalationStats() {
+    return this.escalationService.getEscalationStats();
+  }
+
+  async escalateComplaint(
+    id: string,
+    toLevel: string,
+    reason: string,
+    escalatedBy: string,
+  ) {
+    return this.escalationService.manuallyEscalateComplaint(
+      id,
+      toLevel as any,
+      reason,
+      escalatedBy,
+    );
+  }
+
+  async getComplaintEscalationHistory(id: string) {
+    const complaint = await this.complaintModel
+      .findById(id)
+      .select('escalationHistory escalationLevel escalated')
+      .exec();
+
+    if (!complaint) {
+      throw new NotFoundException('Complaint not found');
+    }
+
+    return {
+      currentLevel: complaint.escalationLevel,
+      escalated: complaint.escalated,
+      history: complaint.escalationHistory || [],
+    };
+  }
+
+  // Contacts - Emergency & Vendor
+  async getAllContacts(type?: string) {
+    const query: any = {};
+    if (type) {
+      query.type = type;
+    }
+    return this.contactModel
+      .find(query)
+      .sort({ type: 1, category: 1, name: 1 })
+      .exec();
+  }
+
+  async getContactById(id: string) {
+    const contact = await this.contactModel.findById(id).exec();
+    if (!contact) {
+      throw new NotFoundException('Contact not found');
+    }
+    return contact;
+  }
+
+  async createContact(contactData: any) {
+    const contact = new this.contactModel(contactData);
+    return contact.save();
+  }
+
+  async updateContact(id: string, contactData: any) {
+    const contact = await this.contactModel
+      .findByIdAndUpdate(id, contactData, { new: true })
+      .exec();
+    if (!contact) {
+      throw new NotFoundException('Contact not found');
+    }
+    return contact;
+  }
+
+  async deleteContact(id: string) {
+    const contact = await this.contactModel.findByIdAndDelete(id).exec();
+    if (!contact) {
+      throw new NotFoundException('Contact not found');
+    }
+    return contact;
+  }
+
+  async toggleContactActive(id: string) {
+    const contact = await this.contactModel.findById(id).exec();
+    if (!contact) {
+      throw new NotFoundException('Contact not found');
+    }
+    contact.isActive = !contact.isActive;
+    return contact.save();
   }
 
   // Billing
@@ -495,40 +903,105 @@ export class AdminService {
     return { totalBilled, collected, pending };
   }
 
-  async getBillingEntries(status?: 'Paid' | 'Unpaid') {
+  async getBillingEntries(status?: 'Paid' | 'Unpaid' | 'Overdue', search?: string) {
     const query: any = {};
     if (status === 'Paid') {
       query.status = PaymentStatus.PAID;
     } else if (status === 'Unpaid') {
-      query.status = { $in: [PaymentStatus.PENDING, PaymentStatus.OVERDUE] };
+      query.status = PaymentStatus.PENDING;
+    } else if (status === 'Overdue') {
+      query.status = PaymentStatus.OVERDUE;
+    }
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { month: { $regex: search, $options: 'i' } },
+      ];
     }
 
     const entries = await this.maintenanceModel
       .find(query)
-      .populate('userId', 'fullName address')
+      .populate('userId', 'fullName flatNo building phoneNumber')
       .sort({ dueDate: 1 })
       .exec();
 
     return entries.map((entry) => ({
       id: entry._id.toString(),
-      flatNo: (entry.userId as any)?.address || 'N/A',
+      flatNo: (entry.userId as any)?.flatNo || 'N/A',
+      building: (entry.userId as any)?.building || '',
       resident: {
         name: (entry.userId as any)?.fullName || 'Unknown',
+        phone: (entry.userId as any)?.phoneNumber || '',
       },
+      title: entry.title,
+      month: entry.month,
       amount: entry.amount,
       dueDate: entry.dueDate ? entry.dueDate.toISOString() : new Date().toISOString(),
-      status: entry.status === PaymentStatus.PAID ? 'Paid' : 'Unpaid',
+      paidDate: entry.paidDate ? entry.paidDate.toISOString() : null,
+      paymentMethod: entry.paymentMethod || null,
+      transactionId: entry.transactionId || null,
+      status: entry.status === PaymentStatus.PAID
+        ? 'Paid'
+        : entry.status === PaymentStatus.OVERDUE
+          ? 'Overdue'
+          : 'Pending',
     }));
   }
 
-  async markAsPaid(id: string) {
+  async getMaintenanceOverallStats() {
+    const [total, paid, pending, overdue] = await Promise.all([
+      this.maintenanceModel.countDocuments(),
+      this.maintenanceModel.countDocuments({ status: PaymentStatus.PAID }),
+      this.maintenanceModel.countDocuments({ status: PaymentStatus.PENDING }),
+      this.maintenanceModel.countDocuments({ status: PaymentStatus.OVERDUE }),
+    ]);
+
+    const [totalAmountResult, collectedResult, pendingAmountResult] = await Promise.all([
+      this.maintenanceModel.aggregate([{ $group: { _id: null, total: { $sum: '$amount' } } }]),
+      this.maintenanceModel.aggregate([
+        { $match: { status: PaymentStatus.PAID } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+      this.maintenanceModel.aggregate([
+        { $match: { status: { $in: [PaymentStatus.PENDING, PaymentStatus.OVERDUE] } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+    ]);
+
+    return {
+      totalBills: total,
+      paidBills: paid,
+      pendingBills: pending,
+      overdueBills: overdue,
+      totalBilled: totalAmountResult[0]?.total || 0,
+      collected: collectedResult[0]?.total || 0,
+      outstanding: pendingAmountResult[0]?.total || 0,
+    };
+  }
+
+  async markBillingAsPaid(
+    id: string,
+    paymentMethod: string,
+    transactionId?: string,
+  ) {
     const maintenance = await this.maintenanceModel.findById(id);
     if (!maintenance) {
-      throw new Error('Billing entry not found');
+      throw new NotFoundException('Billing entry not found');
     }
     maintenance.status = PaymentStatus.PAID;
     maintenance.paidDate = new Date();
+    maintenance.paymentMethod = paymentMethod;
+    if (transactionId) maintenance.transactionId = transactionId;
     return maintenance.save();
+  }
+
+  async markBulkOverdue() {
+    const now = new Date();
+    const result = await this.maintenanceModel.updateMany(
+      { status: PaymentStatus.PENDING, dueDate: { $lt: now } },
+      { $set: { status: PaymentStatus.OVERDUE } },
+    );
+    return { updated: result.modifiedCount };
   }
 
   async sendReminders(ids: string[]) {
@@ -539,14 +1012,14 @@ export class AdminService {
   async generateBill(data: any) {
     // Generate bills for all users or specific blocks
     const users = await this.userModel.find({ isProfileComplete: true });
-    
+
     // Validate and parse dueDate
     let dueDate: Date;
     if (data.dueDate) {
       // Try to parse the date - handle different formats
       // Format could be: "dd-MM-yyyy", "yyyy-MM-dd", ISO string, etc.
       let parsedDate: Date;
-      
+
       // Check if it's in dd-MM-yyyy format
       if (typeof data.dueDate === 'string' && data.dueDate.includes('-')) {
         const parts = data.dueDate.split('-');
@@ -574,11 +1047,24 @@ export class AdminService {
       } else {
         parsedDate = new Date(data.dueDate);
       }
-      
+
       // Check if date is valid
       if (isNaN(parsedDate.getTime())) {
         // If invalid, calculate due date from month and year
-        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const monthNames = [
+          'January',
+          'February',
+          'March',
+          'April',
+          'May',
+          'June',
+          'July',
+          'August',
+          'September',
+          'October',
+          'November',
+          'December',
+        ];
         const monthIndex = monthNames.indexOf(data.month);
         if (monthIndex >= 0 && data.year) {
           // Last day of the specified month
@@ -593,7 +1079,20 @@ export class AdminService {
       }
     } else {
       // If no dueDate provided, calculate from month and year
-      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const monthNames = [
+        'January',
+        'February',
+        'March',
+        'April',
+        'May',
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
+      ];
       const monthIndex = monthNames.indexOf(data.month);
       if (monthIndex >= 0 && data.year) {
         // Last day of the specified month
@@ -604,16 +1103,19 @@ export class AdminService {
         dueDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
       }
     }
-    
+
     // Ensure dueDate is valid before proceeding
     if (isNaN(dueDate.getTime())) {
       throw new BadRequestException('Invalid due date provided');
     }
-    
+
     const bills = users.map((user) => ({
       userId: user._id,
       title: `Maintenance Fee - ${data.month} ${data.year}`,
-      amount: (data.maintenanceAmount || 0) + (data.waterCharges || 0) + (data.sinkingFund || 0),
+      amount:
+        (data.maintenanceAmount || 0) +
+        (data.waterCharges || 0) +
+        (data.sinkingFund || 0),
       dueDate: dueDate,
       status: PaymentStatus.PENDING,
       month: `${data.month} ${data.year}`,
@@ -686,7 +1188,10 @@ export class AdminService {
     const notice = new this.noticeModel({
       ...data,
       expiryDate: new Date(data.expiryDate),
-      status: new Date(data.expiryDate) > new Date() ? NoticeStatus.ACTIVE : NoticeStatus.EXPIRED,
+      status:
+        new Date(data.expiryDate) > new Date()
+          ? NoticeStatus.ACTIVE
+          : NoticeStatus.EXPIRED,
     });
     return notice.save();
   }
@@ -700,8 +1205,12 @@ export class AdminService {
   }
 
   // Staff Management
-  async getAllStaff(type?: StaffType, search?: string) {
+  async getAllStaff(type?: StaffType, search?: string, includeInactive = false) {
     const query: any = {};
+
+    if (!includeInactive) {
+      query.isActive = true;
+    }
 
     if (type) {
       query.type = type;
@@ -728,11 +1237,11 @@ export class AdminService {
       .findById(id)
       .populate('userId', 'fullName email phoneNumber building flatNo')
       .exec();
-    
+
     if (!staff) {
       throw new NotFoundException('Staff not found');
     }
-    
+
     return staff;
   }
 
@@ -750,7 +1259,9 @@ export class AdminService {
     });
 
     if (existingStaff) {
-      throw new Error('Staff with this phone number already exists for this user');
+      throw new Error(
+        'Staff with this phone number already exists for this user',
+      );
     }
 
     const staff = new this.staffModel({
@@ -776,8 +1287,100 @@ export class AdminService {
     if (!staff) {
       throw new NotFoundException('Staff not found');
     }
+    staff.isActive = false;
+    return staff.save();
+  }
 
-    return this.staffModel.findByIdAndDelete(id).exec();
+  async toggleStaffActive(id: string) {
+    const staff = await this.staffModel.findById(id);
+    if (!staff) {
+      throw new NotFoundException('Staff not found');
+    }
+    staff.isActive = !staff.isActive;
+    return staff.save();
+  }
+
+  async getStaffActivityAdmin(staffId: string, month?: number, year?: number) {
+    const staff = await this.staffModel.findById(staffId);
+    if (!staff) {
+      throw new NotFoundException('Staff not found');
+    }
+
+    const query: any = { staffId: new Types.ObjectId(staffId) };
+
+    if (month && year) {
+      const startDate = new Date(year, month - 1, 1);
+      const endDate = new Date(year, month, 0, 23, 59, 59);
+      query.date = { $gte: startDate, $lte: endDate };
+    }
+
+    const activities = await this.staffActivityModel
+      .find(query)
+      .sort({ date: -1 })
+      .exec();
+
+    const present = activities.filter(
+      (a) => a.status === ActivityStatus.PRESENT,
+    ).length;
+    const absent = activities.filter(
+      (a) => a.status === ActivityStatus.ABSENT,
+    ).length;
+
+    return { staff, activities, stats: { present, absent, total: activities.length } };
+  }
+
+  async adminCheckIn(staffId: string) {
+    const staff = await this.staffModel.findById(staffId);
+    if (!staff) throw new NotFoundException('Staff not found');
+
+    staff.status = StaffStatus.INSIDE;
+    await staff.save();
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    let activity = await this.staffActivityModel.findOne({
+      staffId: new Types.ObjectId(staffId),
+      date: { $gte: today, $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000) },
+    });
+
+    if (!activity) {
+      activity = new this.staffActivityModel({
+        staffId: new Types.ObjectId(staffId),
+        date: today,
+        checkInTime: new Date(),
+        status: ActivityStatus.PRESENT,
+      });
+    } else {
+      activity.checkInTime = new Date();
+      activity.status = ActivityStatus.PRESENT;
+    }
+
+    await activity.save();
+    return { staff, activity };
+  }
+
+  async adminCheckOut(staffId: string) {
+    const staff = await this.staffModel.findById(staffId);
+    if (!staff) throw new NotFoundException('Staff not found');
+
+    staff.status = StaffStatus.OUTSIDE;
+    await staff.save();
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const activity = await this.staffActivityModel.findOne({
+      staffId: new Types.ObjectId(staffId),
+      date: { $gte: today, $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000) },
+    });
+
+    if (activity) {
+      activity.checkOutTime = new Date();
+      await activity.save();
+    }
+
+    return { staff, activity };
   }
 
   async getStaffByType(type: StaffType) {
@@ -796,7 +1399,8 @@ export class AdminService {
 
   async getStaffSummary() {
     const total = await this.staffModel.countDocuments({ isActive: true });
-    
+    const inactive = await this.staffModel.countDocuments({ isActive: false });
+
     const byType = await this.staffModel.aggregate([
       { $match: { isActive: true } },
       { $group: { _id: '$type', count: { $sum: 1 } } },
@@ -807,8 +1411,19 @@ export class AdminService {
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ]);
 
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    const presentToday = await this.staffActivityModel.countDocuments({
+      date: { $gte: todayStart, $lt: todayEnd },
+      status: ActivityStatus.PRESENT,
+    });
+
     return {
       total,
+      inactive,
+      presentToday,
       byType: byType.reduce((acc, item) => {
         acc[item._id || 'Unknown'] = item.count;
         return acc;
@@ -821,33 +1436,148 @@ export class AdminService {
   }
 
   // Residents
-  async getAllResidents(building?: string, residentType?: string, search?: string) {
+  async getAllResidents(
+    building?: string,
+    residentType?: string,
+    search?: string,
+    pendingApproval?: boolean,
+  ) {
     const query: any = {};
 
     if (building) {
-      query.address = { $regex: building, $options: 'i' };
-    }
-
-    if (residentType) {
-      // Store resident type in a custom field or use a flag
-      // For now, we'll add a residentType field to user schema
-      query.residentType = residentType;
-    }
-
-    if (search) {
       query.$or = [
-        { fullName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phoneNumber: { $regex: search, $options: 'i' } },
-        { address: { $regex: search, $options: 'i' } },
+        { building: { $regex: building, $options: 'i' } },
+        { block: { $regex: building, $options: 'i' } },
+        { address: { $regex: building, $options: 'i' } },
       ];
     }
 
-    return this.userModel.find(query).sort({ createdAt: -1 }).exec();
+    if (residentType) {
+      query.role = residentType;
+    }
+
+    if (pendingApproval !== undefined) {
+      query.isApprovedByAdmin = !pendingApproval;
+    }
+
+    if (search) {
+      const searchQuery = {
+        $or: [
+          { fullName: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { phoneNumber: { $regex: search, $options: 'i' } },
+          { flat: { $regex: search, $options: 'i' } },
+          { flatNo: { $regex: search, $options: 'i' } },
+          { building: { $regex: search, $options: 'i' } },
+          { block: { $regex: search, $options: 'i' } },
+        ],
+      };
+
+      if (query.$or) {
+        // Combine building query with search query
+        query.$and = [{ $or: query.$or }, searchQuery];
+        delete query.$or;
+      } else {
+        Object.assign(query, searchQuery);
+      }
+    }
+
+    const residents = await this.userModel
+      .find(query)
+      .select(
+        'email fullName phoneNumber role residentType block flat flatNo building isEmailVerified isApprovedByAdmin isProfileComplete emergencyContact emergencyPhone aadharNumber createdAt updatedAt',
+      )
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    // Map and clean the response
+    return residents.map((user: any) => {
+      const userId = user._id
+        ? typeof user._id === 'object'
+          ? user._id.toString()
+          : String(user._id)
+        : null;
+
+      return {
+        id: userId,
+        _id: userId,
+        email: user.email || null,
+        fullName: user.fullName || null,
+        phoneNumber: user.phoneNumber || null,
+        role: user.role || null,
+        residentType: user.residentType || null,
+        block: user.block || null,
+        flat: user.flat || null,
+        flatNo: user.flatNo || null,
+        building: user.building || null,
+        isEmailVerified: user.isEmailVerified || false,
+        isApprovedByAdmin: user.isApprovedByAdmin || false,
+        isProfileComplete: user.isProfileComplete || false,
+        emergencyContact: user.emergencyContact || null,
+        emergencyPhone: user.emergencyPhone || null,
+        aadharNumber: user.aadharNumber || null,
+        createdAt: user.createdAt
+          ? new Date(user.createdAt).toISOString()
+          : null,
+        updatedAt: user.updatedAt
+          ? new Date(user.updatedAt).toISOString()
+          : null,
+      };
+    });
   }
 
   async getResidentById(id: string) {
-    return this.userModel.findById(id).exec();
+    // Validate id is a valid ObjectId format
+    if (!id || id === 'pending' || typeof id !== 'string' || id.length !== 24) {
+      throw new BadRequestException('Invalid resident ID');
+    }
+
+    const user = await this.userModel
+      .findById(id)
+      .select(
+        'email fullName phoneNumber role residentType block flat flatNo building isEmailVerified isApprovedByAdmin isProfileComplete emergencyContact emergencyPhone aadharNumber createdAt updatedAt',
+      )
+      .lean()
+      .exec();
+
+    if (!user) {
+      throw new NotFoundException('Resident not found');
+    }
+
+    // Map and clean the response
+    const userId = user._id
+      ? typeof user._id === 'object'
+        ? user._id.toString()
+        : String(user._id)
+      : null;
+    const userAny = user as any; // Type assertion for lean() result
+
+    return {
+      id: userId,
+      _id: userId,
+      email: user.email || null,
+      fullName: user.fullName || null,
+      phoneNumber: user.phoneNumber || null,
+      role: user.role || null,
+      residentType: userAny.residentType || null,
+      block: user.block || null,
+      flat: user.flat || null,
+      flatNo: user.flatNo || null,
+      building: user.building || null,
+      isEmailVerified: user.isEmailVerified || false,
+      isApprovedByAdmin: user.isApprovedByAdmin || false,
+      isProfileComplete: user.isProfileComplete || false,
+      emergencyContact: userAny.emergencyContact || null,
+      emergencyPhone: userAny.emergencyPhone || null,
+      aadharNumber: userAny.aadharNumber || null,
+      createdAt: userAny.createdAt
+        ? new Date(userAny.createdAt).toISOString()
+        : null,
+      updatedAt: userAny.updatedAt
+        ? new Date(userAny.updatedAt).toISOString()
+        : null,
+    };
   }
 
   async createResident(createResidentDto: any) {
@@ -907,11 +1637,13 @@ export class AdminService {
   }
 
   async getResidentsSummary() {
-    const total = await this.userModel.countDocuments({ isProfileComplete: true });
-    
+    const total = await this.userModel.countDocuments({
+      isProfileComplete: true,
+    });
+
     const byType = await this.userModel.aggregate([
       { $match: { isProfileComplete: true } },
-      { $group: { _id: '$residentType', count: { $sum: 1 } } },
+      { $group: { _id: '$role', count: { $sum: 1 } } },
     ]);
 
     const byBuilding = await this.userModel.aggregate([
@@ -921,14 +1653,205 @@ export class AdminService {
 
     return {
       total,
-      byType: byType.reduce((acc, item) => {
+      byType: byType.reduce((acc: any, item: any) => {
         acc[item._id || 'Unknown'] = item.count;
         return acc;
       }, {}),
-      byBuilding: byBuilding.reduce((acc, item) => {
+      byBuilding: byBuilding.reduce((acc: any, item: any) => {
         acc[item._id || 'Unknown'] = item.count;
         return acc;
       }, {}),
+    };
+  }
+
+  async getPendingResidents() {
+    try {
+      console.log('🔍 getPendingResidents called');
+
+      // Get users who have completed profile (have password OR isProfileComplete: true) but are not approved
+      // Use find with explicit select to ensure only needed fields are returned
+      const query = this.userModel.find({
+        $or: [
+          // Users who have password (completed profile) but not approved
+          {
+            password: { $exists: true, $ne: null },
+            isApprovedByAdmin: false,
+          },
+          // Users who have isProfileComplete: true but not approved
+          {
+            isProfileComplete: true,
+            isApprovedByAdmin: false,
+          },
+        ],
+      });
+
+      // Explicitly select only the fields we want - this is critical
+      query.select(
+        'email fullName phoneNumber role block flat flatNo building isEmailVerified isApprovedByAdmin isProfileComplete createdAt updatedAt',
+      );
+
+      // Sort and use lean for better performance
+      query.sort({ createdAt: -1 });
+      query.lean();
+
+      const pendingResidents = await query.exec();
+
+      console.log(
+        '🔍 Query executed, result type:',
+        Array.isArray(pendingResidents) ? 'array' : typeof pendingResidents,
+      );
+      console.log(
+        '🔍 Result length:',
+        Array.isArray(pendingResidents) ? pendingResidents.length : 'N/A',
+      );
+
+      if (!Array.isArray(pendingResidents)) {
+        console.error(
+          '❌ ERROR: pendingResidents is not an array!',
+          typeof pendingResidents,
+        );
+        return [];
+      }
+
+      // Debug: Log the raw results
+      console.log('Raw pending residents count:', pendingResidents.length);
+      if (pendingResidents.length > 0) {
+        console.log('Sample raw user keys:', Object.keys(pendingResidents[0]));
+        console.log(
+          'Sample raw user (first 200 chars):',
+          JSON.stringify(pendingResidents[0]).substring(0, 200),
+        );
+      }
+
+      // Map and structure the response properly - explicitly construct clean objects
+      const cleanedResidents = pendingResidents.map((user: any) => {
+        // Convert _id to string safely
+        const userId = user._id
+          ? typeof user._id === 'object'
+            ? user._id.toString()
+            : String(user._id)
+          : null;
+
+        // Explicitly construct clean object - DO NOT use spread operator
+        const cleanUser = {
+          id: userId,
+          _id: userId,
+          email: user.email || null,
+          fullName: user.fullName || null,
+          phoneNumber: user.phoneNumber || null,
+          role: user.role || null,
+          block: user.block || null,
+          flat: user.flat || null,
+          flatNo: user.flatNo || null,
+          building: user.building || null,
+          isEmailVerified: user.isEmailVerified || false,
+          isApprovedByAdmin: user.isApprovedByAdmin || false,
+          isProfileComplete: user.isProfileComplete || false,
+          createdAt: user.createdAt
+            ? new Date(user.createdAt).toISOString()
+            : null,
+          updatedAt: user.updatedAt
+            ? new Date(user.updatedAt).toISOString()
+            : null,
+        };
+
+        // Double-check: explicitly remove any unwanted fields (shouldn't be needed but safety)
+        delete (cleanUser as any).password;
+        delete (cleanUser as any).emailOtp;
+        delete (cleanUser as any).emailOtpExpiresAt;
+        delete (cleanUser as any).passwordResetOtp;
+        delete (cleanUser as any).passwordResetOtpExpiresAt;
+        delete (cleanUser as any).otp;
+        delete (cleanUser as any).otpExpiresAt;
+        delete (cleanUser as any).fcmToken;
+        delete (cleanUser as any).__v;
+
+        return cleanUser;
+      });
+
+      console.log('Cleaned residents count:', cleanedResidents.length);
+      if (cleanedResidents.length > 0) {
+        console.log(
+          'Sample cleaned user keys:',
+          Object.keys(cleanedResidents[0]),
+        );
+        console.log(
+          'Sample cleaned user:',
+          JSON.stringify(cleanedResidents[0], null, 2),
+        );
+      }
+
+      return cleanedResidents;
+    } catch (error) {
+      console.error('Error fetching pending residents:', error);
+      console.error('Error stack:', error.stack);
+      throw new BadRequestException(
+        `Failed to fetch pending residents: ${error.message}`,
+      );
+    }
+  }
+
+  async approveResident(id: string) {
+    // Validate id is a valid ObjectId format
+    if (!id || id === 'pending' || typeof id !== 'string' || id.length !== 24) {
+      throw new BadRequestException('Invalid resident ID');
+    }
+
+    const user = await this.userModel.findById(id);
+    if (!user) {
+      throw new NotFoundException('Resident not found');
+    }
+
+    if (!user.isEmailVerified) {
+      throw new BadRequestException('Email not verified');
+    }
+
+    if (!user.password) {
+      throw new BadRequestException('Profile not completed');
+    }
+
+    user.isApprovedByAdmin = true;
+    await user.save();
+
+    // Send welcome email
+    if (user.email && user.fullName) {
+      try {
+        await this.emailService.sendWelcomeEmail(user.email, user.fullName);
+      } catch (error) {
+        // Log error but don't fail the approval
+        console.error('Failed to send welcome email:', error);
+      }
+    }
+
+    return {
+      message: 'Resident approved successfully',
+      user: {
+        id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        isApprovedByAdmin: user.isApprovedByAdmin,
+      },
+    };
+  }
+
+  async rejectResident(id: string, reason?: string) {
+    // Validate id is a valid ObjectId format
+    if (!id || id === 'pending' || typeof id !== 'string' || id.length !== 24) {
+      throw new BadRequestException('Invalid resident ID');
+    }
+
+    const user = await this.userModel.findById(id);
+    if (!user) {
+      throw new NotFoundException('Resident not found');
+    }
+
+    // Optionally delete or mark as rejected
+    // For now, we'll just delete the user
+    await this.userModel.findByIdAndDelete(id);
+
+    return {
+      message: 'Resident registration rejected',
+      reason: reason || 'Registration rejected by admin',
     };
   }
 
@@ -941,63 +1864,128 @@ export class AdminService {
       .exec();
   }
 
-  // Packages
-  async getAllPackages(status?: string) {
+  // Parcels
+  async getAllParcels(status?: string, search?: string) {
     const query: any = {};
     if (status) {
       query.status = status;
     }
-    return this.packageModel
+    if (search) {
+      query.$or = [
+        { trackingNumber: { $regex: search, $options: 'i' } },
+        { recipientName: { $regex: search, $options: 'i' } },
+        { flatNumber: { $regex: search, $options: 'i' } },
+      ];
+    }
+    return this.parcelModel
       .find(query)
       .populate('userId', 'fullName building flatNo phoneNumber')
       .sort({ createdAt: -1 })
       .exec();
   }
 
-  async getPendingPackages() {
-    return this.packageModel
+  async getParcelsStats() {
+    const [total, pending, collected, returned] = await Promise.all([
+      this.parcelModel.countDocuments(),
+      this.parcelModel.countDocuments({ status: 'Pending' }),
+      this.parcelModel.countDocuments({ status: 'Collected' }),
+      this.parcelModel.countDocuments({ status: 'Returned' }),
+    ]);
+    return { total, pending, collected, returned };
+  }
+
+  async getPendingParcels() {
+    return this.parcelModel
       .find({ status: 'Pending' })
       .populate('userId', 'fullName building flatNo phoneNumber')
       .sort({ createdAt: -1 })
       .exec();
   }
 
-  async getPackageById(id: string) {
-    const packageEntry = await this.packageModel
+  async getParcelById(id: string) {
+    const parcelEntry = await this.parcelModel
       .findById(id)
       .populate('userId', 'fullName building flatNo phoneNumber')
       .exec();
-    if (!packageEntry) {
-      throw new NotFoundException('Package not found');
+    if (!parcelEntry) {
+      throw new NotFoundException('Parcel not found');
     }
-    return packageEntry;
+    return parcelEntry;
   }
 
-  async updatePackageStatus(id: string, status: string, collectedBy?: string, notes?: string) {
-    const packageEntry = await this.packageModel.findById(id);
-    if (!packageEntry) {
-      throw new NotFoundException('Package not found');
+  async adminCreateParcel(dto: any) {
+    const parcel = new this.parcelModel({
+      ...dto,
+      status: 'Pending',
+    });
+    return parcel.save();
+  }
+
+  async updateParcelStatus(
+    id: string,
+    status: string,
+    collectedBy?: string,
+    notes?: string,
+  ) {
+    const parcelEntry = await this.parcelModel.findById(id);
+    if (!parcelEntry) {
+      throw new NotFoundException('Parcel not found');
     }
 
-    packageEntry.status = status as any;
+    parcelEntry.status = status as any;
     if (status === 'Collected') {
-      packageEntry.collectedBy = collectedBy || 'Guard';
-      packageEntry.collectedAt = new Date();
+      parcelEntry.collectedBy = collectedBy || 'Guard';
+      parcelEntry.collectedAt = new Date();
+    }
+    if (status === 'Returned') {
+      parcelEntry.returnedAt = new Date();
     }
     if (notes) {
-      packageEntry.notes = notes;
+      parcelEntry.notes = notes;
     }
 
-    return packageEntry.save();
+    return parcelEntry.save();
+  }
+
+  async returnParcel(id: string, notes?: string) {
+    return this.updateParcelStatus(id, 'Returned', undefined, notes);
   }
 
   // Documents
-  async getAllDocuments() {
-    return this.documentModel
-      .find()
-      .populate('userId', 'fullName building flatNo')
+  async getAllDocuments(search?: string, filter?: 'all' | 'verified' | 'pending') {
+    const query: any = {};
+    if (filter === 'verified') query.isVerified = true;
+    if (filter === 'pending') query.isVerified = false;
+
+    let docs = await this.documentModel
+      .find(query)
+      .populate('userId', 'fullName building flatNo phoneNumber')
       .sort({ createdAt: -1 })
       .exec();
+
+    if (search) {
+      const s = search.toLowerCase();
+      docs = docs.filter(
+        (d) =>
+          d.documentType.toLowerCase().includes(s) ||
+          d.documentNumber.toLowerCase().includes(s) ||
+          (d.userId as any)?.fullName?.toLowerCase().includes(s),
+      );
+    }
+    return docs;
+  }
+
+  async getDocumentStats() {
+    const total = await this.documentModel.countDocuments();
+    const verified = await this.documentModel.countDocuments({ isVerified: true });
+    const pending = await this.documentModel.countDocuments({ isVerified: false });
+    const expiringInDays = 30;
+    const expiringDate = new Date();
+    expiringDate.setDate(expiringDate.getDate() + expiringInDays);
+    const expiringSoon = await this.documentModel.countDocuments({
+      expiryDate: { $lte: expiringDate, $gte: new Date() },
+    });
+    return { total, verified, pending, expiringSoon };
   }
 
   async verifyDocument(id: string) {
@@ -1010,9 +1998,20 @@ export class AdminService {
     return document.save();
   }
 
+  async deleteAdminDocument(id: string) {
+    const document = await this.documentModel.findById(id);
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+    return this.documentModel.findByIdAndDelete(id).exec();
+  }
+
   // Emergency Contacts
   async getAllEmergencyContacts() {
-    return this.emergencyContactModel.find({ isActive: true }).sort({ contactType: 1, name: 1 }).exec();
+    return this.emergencyContactModel
+      .find({ isActive: true })
+      .sort({ contactType: 1, name: 1 })
+      .exec();
   }
 
   async createEmergencyContact(data: any) {
@@ -1035,11 +2034,18 @@ export class AdminService {
 
   // Pets Management
   async getAllPets() {
-    return this.petModel.find({ isActive: true }).populate('userId', 'fullName phoneNumber building flatNo').sort({ createdAt: -1 }).exec();
+    return this.petModel
+      .find({ isActive: true })
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .sort({ createdAt: -1 })
+      .exec();
   }
 
   async getPetById(id: string) {
-    const pet = await this.petModel.findById(id).populate('userId', 'fullName phoneNumber building flatNo').exec();
+    const pet = await this.petModel
+      .findById(id)
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .exec();
     if (!pet) {
       throw new NotFoundException('Pet not found');
     }
@@ -1069,56 +2075,45 @@ export class AdminService {
     return pet.save();
   }
 
-  // Chat Management
-  async getAllChatMessages(limit: number = 100) {
-    return this.chatMessageModel
-      .find({ isDeleted: false })
-      .populate('userId', 'fullName phoneNumber profilePhoto building flatNo')
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .exec();
-  }
-
-  async deleteChatMessage(id: string) {
-    const message = await this.chatMessageModel.findById(id);
-    if (!message) {
-      throw new NotFoundException('Message not found');
-    }
-    message.isDeleted = true;
-    message.deletedAt = new Date();
-    return message.save();
-  }
-
   // Visitors Management
-  async getAllVisitors(status?: string, type?: string, preApproved?: boolean) {
+  async getAllVisitors(
+    status?: string,
+    type?: string,
+    preApproved?: boolean,
+    search?: string,
+  ) {
     const query: any = {};
-    if (status) {
-      query.status = status;
+    if (status) query.status = status;
+    if (type) query.type = type;
+    if (preApproved !== undefined) query.isPreApproved = preApproved;
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { phoneNumber: { $regex: search, $options: 'i' } },
+        { purpose: { $regex: search, $options: 'i' } },
+      ];
     }
-    if (type) {
-      query.type = type;
-    }
-    if (preApproved !== undefined) {
-      query.isPreApproved = preApproved;
-    }
-    const visitors = await this.visitorModel.find(query).populate('userId', 'fullName phoneNumber building flatNo').sort({ createdAt: -1 }).exec();
-    
-    // Ensure all visitors have QR codes
-    for (const visitor of visitors) {
-      if (!visitor.qrCode) {
-        const userId = visitor.userId instanceof Types.ObjectId 
-          ? visitor.userId.toString() 
-          : (visitor.userId as any)?._id?.toString() || (visitor.userId as any)?.id?.toString() || '';
-        visitor.qrCode = JSON.stringify({
-          visitorId: visitor._id.toString(),
-          userId: userId,
-          timestamp: Date.now(),
-        });
-        await visitor.save();
-      }
-    }
-    
+
+    const visitors = await this.visitorModel
+      .find(query)
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .sort({ createdAt: -1 })
+      .exec();
+
     return visitors;
+  }
+
+  async getVisitorStats() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [total, todayCount, inside, pending, preApproved] = await Promise.all([
+      this.visitorModel.countDocuments(),
+      this.visitorModel.countDocuments({ createdAt: { $gte: today } }),
+      this.visitorModel.countDocuments({ status: VisitorStatus.INSIDE }),
+      this.visitorModel.countDocuments({ status: VisitorStatus.PENDING }),
+      this.visitorModel.countDocuments({ isPreApproved: true }),
+    ]);
+    return { total, today: todayCount, inside, pending, preApproved };
   }
 
   async getTodayVisitors() {
@@ -1131,6 +2126,54 @@ export class AdminService {
       .populate('userId', 'fullName phoneNumber building flatNo')
       .sort({ createdAt: -1 })
       .exec();
+  }
+
+  async deleteVisitor(id: string) {
+    const visitor = await this.visitorModel.findById(id);
+    if (!visitor) {
+      throw new NotFoundException('Visitor not found');
+    }
+    return this.visitorModel.findByIdAndDelete(id).exec();
+  }
+
+  async getVisitorStatus(id: string) {
+    const visitor = await this.visitorModel
+      .findById(id)
+      .select('status entryTime exitTime')
+      .lean()
+      .exec();
+    if (!visitor) {
+      throw new NotFoundException('Visitor not found');
+    }
+    return visitor;
+  }
+
+  async lookupResidentByFlat(building: string, flatNo: string) {
+    const residents = await this.userModel
+      .find({
+        $or: [
+          { building: { $regex: `^${building}$`, $options: 'i' }, flatNo: { $regex: `^${flatNo}$`, $options: 'i' } },
+          { building: { $regex: `^${building}$`, $options: 'i' }, flat: { $regex: `^${flatNo}$`, $options: 'i' } },
+        ],
+        isApprovedByAdmin: true,
+      })
+      .select('fullName phoneNumber building flatNo block profilePhoto')
+      .lean()
+      .exec();
+
+    if (!residents || residents.length === 0) {
+      return [];
+    }
+
+    return residents.map(r => ({
+      id: r._id?.toString(),
+      fullName: r.fullName,
+      phoneNumber: r.phoneNumber,
+      building: r.building,
+      flatNo: r.flatNo || (r as any).flat,
+      block: r.block,
+      profilePhoto: r.profilePhoto,
+    }));
   }
 
   async getPreApprovedVisitors() {
@@ -1164,6 +2207,13 @@ export class AdminService {
     if (!visitor) {
       throw new NotFoundException('Visitor not found');
     }
+
+    // Check if the visitor pass was created more than 24 hours ago
+    const timeSinceCreation = Date.now() - (visitor as any).createdAt.getTime();
+    if (timeSinceCreation > 24 * 60 * 60 * 1000) {
+      throw new BadRequestException('Cannot record entry. This visitor pass has expired (created more than 24 hours ago).');
+    }
+
     visitor.status = VisitorStatus.INSIDE;
     visitor.entryTime = new Date();
     return visitor.save();
@@ -1189,7 +2239,9 @@ export class AdminService {
     } else {
       const firstUser = await this.userModel.findOne().exec();
       if (!firstUser) {
-        throw new NotFoundException('No users found. Please create a user first.');
+        throw new NotFoundException(
+          'No users found. Please create a user first.',
+        );
       }
       userId = firstUser._id;
     }
@@ -1207,21 +2259,27 @@ export class AdminService {
       phoneNumber: createDto.phoneNumber,
       profilePhoto: createDto.profilePhoto,
       isPreApproved: createDto.isPreApproved,
-      expectedDate: createDto.expectedDate ? new Date(createDto.expectedDate) : undefined,
+      expectedDate: createDto.expectedDate
+        ? new Date(createDto.expectedDate)
+        : undefined,
+      vehicleNumber: (createDto as any).vehicleNumber,
+      guestCount: (createDto as any).guestCount ?? 1,
       userId: userId,
-      status: createDto.isPreApproved ? VisitorStatus.APPROVED : VisitorStatus.PENDING,
+      status: createDto.isPreApproved
+        ? VisitorStatus.APPROVED
+        : VisitorStatus.PENDING,
       qrCode: qrData,
     });
-    
+
     const savedVisitor = await visitor.save();
-    
+
     // Update QR code with actual visitor ID
     savedVisitor.qrCode = JSON.stringify({
       visitorId: savedVisitor._id.toString(),
       userId: userId.toString(),
       timestamp: Date.now(),
     });
-    
+
     return savedVisitor.save();
   }
 
@@ -1230,42 +2288,50 @@ export class AdminService {
       console.log('🔍 Verifying QR code:', qrData);
       const data = JSON.parse(qrData);
       console.log('🔍 Parsed QR data:', data);
-      
+
       if (!data.visitorId) {
         throw new UnauthorizedException('Invalid QR code: missing visitorId');
       }
-      
-      const visitor = await this.visitorModel.findById(data.visitorId)
+
+      const visitor = await this.visitorModel
+        .findById(data.visitorId)
         .populate('userId', 'fullName phoneNumber building flatNo')
         .exec();
-      
+
       if (!visitor) {
         throw new NotFoundException('Visitor not found');
       }
 
       // Check if QR code is valid (not expired)
       // Default validity: 24 hours, configurable via environment variable
-      const QR_VALIDITY_HOURS = parseInt(process.env.QR_VALIDITY_HOURS || '24', 10);
+      const QR_VALIDITY_HOURS = parseInt(
+        process.env.QR_VALIDITY_HOURS || '24',
+        10,
+      );
       const QR_VALIDITY_MS = QR_VALIDITY_HOURS * 60 * 60 * 1000;
-      
+
       const qrTimestamp = data.timestamp;
       if (!qrTimestamp) {
         throw new UnauthorizedException('Invalid QR code: missing timestamp');
       }
-      
+
       const now = Date.now();
       const timeElapsed = now - qrTimestamp;
       const timeRemaining = QR_VALIDITY_MS - timeElapsed;
-      
+
       if (timeElapsed > QR_VALIDITY_MS) {
         const hoursExpired = Math.floor(timeElapsed / (60 * 60 * 1000));
-        throw new UnauthorizedException(`QR code expired ${hoursExpired} hour(s) ago. Validity: ${QR_VALIDITY_HOURS} hours.`);
+        throw new UnauthorizedException(
+          `QR code expired ${hoursExpired} hour(s) ago. Validity: ${QR_VALIDITY_HOURS} hours.`,
+        );
       }
 
       // Calculate expiration time and remaining validity
       const expirationTime = qrTimestamp + QR_VALIDITY_MS;
       const hoursRemaining = Math.floor(timeRemaining / (60 * 60 * 1000));
-      const minutesRemaining = Math.floor((timeRemaining % (60 * 60 * 1000)) / (60 * 1000));
+      const minutesRemaining = Math.floor(
+        (timeRemaining % (60 * 60 * 1000)) / (60 * 1000),
+      );
 
       return {
         visitor: {
@@ -1287,7 +2353,10 @@ export class AdminService {
         },
       };
     } catch (error) {
-      if (error instanceof NotFoundException || error instanceof UnauthorizedException) {
+      if (
+        error instanceof NotFoundException ||
+        error instanceof UnauthorizedException
+      ) {
         throw error;
       }
       throw new UnauthorizedException('Invalid QR code');
@@ -1322,7 +2391,7 @@ export class AdminService {
     // For admin-created events, we need to set createdBy
     // Since admin JWT doesn't have a userId, we'll use the first user as fallback
     let createdByUserId: Types.ObjectId;
-    
+
     if (body.createdBy && Types.ObjectId.isValid(body.createdBy)) {
       // Use provided createdBy if it's a valid ObjectId
       createdByUserId = new Types.ObjectId(body.createdBy);
@@ -1335,7 +2404,9 @@ export class AdminService {
       } else {
         // If no users exist, we'll need to create a system admin user
         // For now, throw an error - in production, create a system admin user
-        throw new NotFoundException('No user found. Please create a user first or provide a valid createdBy.');
+        throw new NotFoundException(
+          'No user found. Please create a user first or provide a valid createdBy.',
+        );
       }
     }
 
@@ -1345,7 +2416,9 @@ export class AdminService {
       endDate: new Date(body.endDate),
       status: body.status || EventStatus.PUBLISHED,
       createdBy: createdByUserId,
-      invitedUsers: body.invitedUsers ? body.invitedUsers.map((id: string) => new Types.ObjectId(id)) : [],
+      invitedUsers: body.invitedUsers
+        ? body.invitedUsers.map((id: string) => new Types.ObjectId(id))
+        : [],
     });
     return event.save();
   }
@@ -1359,10 +2432,25 @@ export class AdminService {
     if (body.startDate) body.startDate = new Date(body.startDate);
     if (body.endDate) body.endDate = new Date(body.endDate);
     if (body.invitedUsers) {
-      body.invitedUsers = body.invitedUsers.map((id: string) => new Types.ObjectId(id));
+      body.invitedUsers = body.invitedUsers.map(
+        (id: string) => new Types.ObjectId(id),
+      );
     }
 
     Object.assign(event, body);
+    return event.save();
+  }
+
+  async updateEventStatus(id: string, status: string) {
+    const validStatuses = ['Draft', 'Published', 'Cancelled', 'Completed'];
+    if (!validStatuses.includes(status)) {
+      throw new BadRequestException(`Invalid status. Must be one of: ${validStatuses.join(', ')}`);
+    }
+    const event = await this.eventModel.findById(id);
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+    event.status = status as any;
     return event.save();
   }
 
@@ -1375,39 +2463,85 @@ export class AdminService {
   }
 
   // Notification Management
-  async sendNotificationToUser(userId: string, title: string, body: string, data?: Record<string, string>) {
+  async sendNotificationToUser(
+    userId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ) {
     if (!this.notificationsService) {
       return { success: false, message: 'Notifications service not available' };
     }
-    return this.notificationsService.sendNotificationToUser(userId, title, body, data);
+    return this.notificationsService.sendNotificationToUser(
+      userId,
+      title,
+      body,
+      data,
+    );
   }
 
-  async sendNotificationToGuard(guardId: string, title: string, body: string, data?: Record<string, string>) {
+  async sendNotificationToGuard(
+    guardId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ) {
     if (!this.notificationsService) {
       return { success: false, message: 'Notifications service not available' };
     }
-    return this.notificationsService.sendNotificationToGuard(guardId, title, body, data);
+    return this.notificationsService.sendNotificationToGuard(
+      guardId,
+      title,
+      body,
+      data,
+    );
   }
 
-  async sendNotificationToMultipleUsers(userIds: string[], title: string, body: string, data?: Record<string, string>) {
+  async sendNotificationToMultipleUsers(
+    userIds: string[],
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ) {
     if (!this.notificationsService) {
       return { success: false, message: 'Notifications service not available' };
     }
-    return this.notificationsService.sendNotificationToMultipleUsers(userIds, title, body, data);
+    return this.notificationsService.sendNotificationToMultipleUsers(
+      userIds,
+      title,
+      body,
+      data,
+    );
   }
 
-  async sendNotificationToAllUsers(title: string, body: string, data?: Record<string, string>) {
+  async sendNotificationToAllUsers(
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ) {
     if (!this.notificationsService) {
       return { success: false, message: 'Notifications service not available' };
     }
-    return this.notificationsService.sendNotificationToAllUsers(title, body, data);
+    return this.notificationsService.sendNotificationToAllUsers(
+      title,
+      body,
+      data,
+    );
   }
 
-  async sendNotificationToAllGuards(title: string, body: string, data?: Record<string, string>) {
+  async sendNotificationToAllGuards(
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ) {
     if (!this.notificationsService) {
       return { success: false, message: 'Notifications service not available' };
     }
-    return this.notificationsService.sendNotificationToAllGuards(title, body, data);
+    return this.notificationsService.sendNotificationToAllGuards(
+      title,
+      body,
+      data,
+    );
   }
 
   // Parking Management
@@ -1427,7 +2561,12 @@ export class AdminService {
       .exec();
   }
 
-  async assignParkingSlot(slotId: string, userId: string, licensePlate?: string, vehicleName?: string) {
+  async assignParkingSlot(
+    slotId: string,
+    userId: string,
+    licensePlate?: string,
+    vehicleName?: string,
+  ) {
     const slot = await this.parkingSlotModel.findById(slotId);
     if (!slot) {
       throw new NotFoundException('Parking slot not found');
@@ -1446,7 +2585,8 @@ export class AdminService {
   }
 
   async approveParkingApplication(applicationId: string, slotId?: string) {
-    const application = await this.parkingApplicationModel.findById(applicationId);
+    const application =
+      await this.parkingApplicationModel.findById(applicationId);
     if (!application) {
       throw new NotFoundException('Parking application not found');
     }
@@ -1467,13 +2607,114 @@ export class AdminService {
   }
 
   async rejectParkingApplication(applicationId: string) {
-    const application = await this.parkingApplicationModel.findById(applicationId);
+    const application =
+      await this.parkingApplicationModel.findById(applicationId);
     if (!application) {
       throw new NotFoundException('Parking application not found');
     }
 
     application.status = ApplicationStatus.REJECTED;
     return application.save();
+  }
+
+  async getParkingByBuilding() {
+    const buildings = await this.buildingModel
+      .find({ isActive: true })
+      .select('_id name address')
+      .lean()
+      .exec();
+
+    const results = await Promise.all(
+      buildings.map(async (b) => {
+        const buildingId = b._id;
+        const slots = await this.parkingSlotModel
+          .find({ building: buildingId })
+          .lean()
+          .exec();
+
+        const total = slots.length;
+        const occupied = slots.filter(
+          (s) => s.status === SlotStatus.OCCUPIED,
+        ).length;
+        const vacant = total - occupied;
+
+        const byType: Record<string, { total: number; occupied: number }> = {};
+        for (const s of slots) {
+          const t = s.parkingType ?? s.slotType ?? 'Unknown';
+          if (!byType[t]) byType[t] = { total: 0, occupied: 0 };
+          byType[t].total++;
+          if (s.status === SlotStatus.OCCUPIED) byType[t].occupied++;
+        }
+
+        return {
+          building: b,
+          stats: { total, occupied, vacant },
+          byType,
+        };
+      }),
+    );
+
+    return results;
+  }
+
+  async getParkingSlotsByBuilding(buildingId: string) {
+    return this.parkingSlotModel
+      .find({ building: new Types.ObjectId(buildingId) })
+      .populate('assignedTo', 'fullName flatNo phoneNumber')
+      .sort({ floor: 1, slotNumber: 1 })
+      .exec();
+  }
+
+  async bulkCreateParkingSlots(
+    buildingId: string,
+    floor: string,
+    parkingType: string,
+    prefix: string,
+    startNumber: number,
+    count: number,
+  ) {
+    const building = await this.buildingModel.findById(buildingId);
+    if (!building) {
+      throw new NotFoundException('Building not found');
+    }
+
+    const slots = Array.from({ length: count }, (_, i) => ({
+      building: new Types.ObjectId(buildingId),
+      buildingName: building.name,
+      slotNumber: `${prefix}${String(startNumber + i).padStart(3, '0')}`,
+      floor,
+      parkingType,
+      slotType: SlotType.MAIN,
+      status: SlotStatus.VACANT,
+    }));
+
+    return this.parkingSlotModel.insertMany(slots);
+  }
+
+  async deleteParkingSlot(slotId: string) {
+    const slot = await this.parkingSlotModel.findById(slotId);
+    if (!slot) {
+      throw new NotFoundException('Parking slot not found');
+    }
+    if (slot.status === SlotStatus.OCCUPIED) {
+      throw new BadRequestException(
+        'Cannot delete an occupied slot. Release it first.',
+      );
+    }
+    await this.parkingSlotModel.findByIdAndDelete(slotId);
+    return { message: 'Slot deleted successfully' };
+  }
+
+  async releaseParkingSlot(slotId: string) {
+    const slot = await this.parkingSlotModel.findById(slotId);
+    if (!slot) {
+      throw new NotFoundException('Parking slot not found');
+    }
+    slot.status = SlotStatus.VACANT;
+    slot.assignedTo = undefined;
+    slot.licensePlate = undefined;
+    slot.vehicleName = undefined;
+    return slot.save();
   }
 
   // Maintenance Management
@@ -1490,7 +2731,11 @@ export class AdminService {
       .exec();
   }
 
-  async markMaintenancePaid(id: string, paymentMethod: string, transactionId: string) {
+  async markMaintenancePaid(
+    id: string,
+    paymentMethod: string,
+    transactionId: string,
+  ) {
     const maintenance = await this.maintenanceModel.findById(id);
     if (!maintenance) {
       throw new NotFoundException('Maintenance record not found');
@@ -1505,16 +2750,118 @@ export class AdminService {
   }
 
   // Amenities Booking Management
-  async getAllAmenityBookings(status?: string) {
+  // ──────────────────────────────────────────────
+  // Amenity Configuration CRUD
+  // ──────────────────────────────────────────────
+
+  async getAllAmenityConfigs() {
+    return this.amenityModel.find().sort({ name: 1 }).exec();
+  }
+
+  async createAmenityConfig(data: {
+    name: string;
+    description?: string;
+    icon?: string;
+    color?: string;
+    fee: number;
+    maxCapacityPerSlot?: number;
+    availableSlots?: string[];
+    rules?: string;
+    isActive?: boolean;
+  }) {
+    const existing = await this.amenityModel.findOne({ name: data.name });
+    if (existing) {
+      throw new BadRequestException(
+        `An amenity named "${data.name}" already exists`,
+      );
+    }
+    const amenity = new this.amenityModel(data);
+    return amenity.save();
+  }
+
+  async updateAmenityConfig(
+    id: string,
+    data: {
+      name?: string;
+      description?: string;
+      icon?: string;
+      color?: string;
+      fee?: number;
+      maxCapacityPerSlot?: number;
+      availableSlots?: string[];
+      rules?: string;
+      isActive?: boolean;
+    },
+  ) {
+    const amenity = await this.amenityModel.findById(id);
+    if (!amenity) throw new NotFoundException('Amenity not found');
+    Object.assign(amenity, data);
+    return amenity.save();
+  }
+
+  async deleteAmenityConfig(id: string) {
+    const amenity = await this.amenityModel.findById(id);
+    if (!amenity) throw new NotFoundException('Amenity not found');
+    await this.amenityModel.deleteOne({ _id: id });
+    return { success: true };
+  }
+
+  async getAmenityStats() {
+    const [total, confirmed, pending, cancelled, completed] = await Promise.all([
+      this.amenityBookingModel.countDocuments(),
+      this.amenityBookingModel.countDocuments({ status: BookingStatus.CONFIRMED }),
+      this.amenityBookingModel.countDocuments({ status: BookingStatus.PENDING }),
+      this.amenityBookingModel.countDocuments({ status: BookingStatus.CANCELLED }),
+      this.amenityBookingModel.countDocuments({ status: BookingStatus.COMPLETED }),
+    ]);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const upcoming = await this.amenityBookingModel.countDocuments({
+      bookingDate: { $gte: today },
+      status: { $in: [BookingStatus.CONFIRMED, BookingStatus.PENDING] },
+    });
+
+    const [revenueResult, pendingPaymentResult] = await Promise.all([
+      this.amenityBookingModel.aggregate([
+        { $match: { paymentStatus: 'Paid' } },
+        { $group: { _id: null, total: { $sum: '$fee' } } },
+      ]),
+      this.amenityBookingModel.aggregate([
+        { $match: { paymentStatus: 'Payment Pending' } },
+        { $group: { _id: null, total: { $sum: '$fee' } } },
+      ]),
+    ]);
+
+    return {
+      total,
+      confirmed,
+      pending,
+      cancelled,
+      completed,
+      upcoming,
+      totalRevenue: revenueResult[0]?.total || 0,
+      pendingPayment: pendingPaymentResult[0]?.total || 0,
+    };
+  }
+
+  async getAllAmenityBookings(status?: string, amenityType?: string, date?: string) {
     const query: any = {};
-    if (status) {
-      query.status = status;
+    if (status) query.status = status;
+    if (amenityType) query.amenityType = amenityType;
+    if (date) {
+      const d = new Date(date);
+      d.setHours(0, 0, 0, 0);
+      query.bookingDate = {
+        $gte: d,
+        $lt: new Date(d.getTime() + 24 * 60 * 60 * 1000),
+      };
     }
 
     return this.amenityBookingModel
       .find(query)
       .populate('userId', 'fullName building flatNo phoneNumber')
-      .sort({ bookingDate: 1, timeSlot: 1 })
+      .sort({ bookingDate: -1, timeSlot: 1 })
       .exec();
   }
 
@@ -1529,6 +2876,38 @@ export class AdminService {
     }
 
     return booking;
+  }
+
+  async approveAmenityBooking(id: string) {
+    const booking = await this.amenityBookingModel.findById(id);
+    if (!booking) throw new NotFoundException('Amenity booking not found');
+    if (booking.status !== BookingStatus.PENDING) {
+      throw new BadRequestException('Only pending bookings can be approved');
+    }
+    booking.status = BookingStatus.CONFIRMED;
+    return booking.save();
+  }
+
+  async completeAmenityBooking(id: string) {
+    const booking = await this.amenityBookingModel.findById(id);
+    if (!booking) throw new NotFoundException('Amenity booking not found');
+    booking.status = BookingStatus.COMPLETED;
+    (booking as any).completedAt = new Date();
+    return booking.save();
+  }
+
+  async markAmenityPaymentPaid(
+    id: string,
+    paymentMethod: string,
+    transactionId?: string,
+  ) {
+    const booking = await this.amenityBookingModel.findById(id);
+    if (!booking) throw new NotFoundException('Amenity booking not found');
+    (booking as any).paymentStatus = 'Paid';
+    (booking as any).paymentMethod = paymentMethod;
+    if (transactionId) (booking as any).transactionId = transactionId;
+    (booking as any).paidAt = new Date();
+    return booking.save();
   }
 
   async cancelAmenityBooking(id: string) {
@@ -1546,157 +2925,7 @@ export class AdminService {
     }
 
     booking.status = BookingStatus.CANCELLED;
+    (booking as any).cancelledAt = new Date();
     return booking.save();
-  }
-
-  // Marketplace Management
-  async getAllMarketplaceListings(status?: string, category?: string, search?: string) {
-    const query: any = {};
-
-    if (status) {
-      query.status = status;
-    }
-
-    if (category) {
-      query.category = category;
-    }
-
-    if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-      ];
-    }
-
-    return this.marketplaceListingModel
-      .find(query)
-      .populate('userId', 'fullName phoneNumber building flatNo')
-      .populate('buyerId', 'fullName phoneNumber')
-      .sort({ createdAt: -1 })
-      .exec();
-  }
-
-  async getMarketplaceListingById(id: string) {
-    const listing = await this.marketplaceListingModel
-      .findById(id)
-      .populate('userId', 'fullName phoneNumber building flatNo')
-      .populate('buyerId', 'fullName phoneNumber')
-      .exec();
-
-    if (!listing) {
-      throw new NotFoundException('Listing not found');
-    }
-
-    return listing;
-  }
-
-  async deleteMarketplaceListing(id: string) {
-    const listing = await this.marketplaceListingModel.findById(id);
-    if (!listing) {
-      throw new NotFoundException('Listing not found');
-    }
-
-    return this.marketplaceListingModel.findByIdAndUpdate(
-      id,
-      { status: ListingStatus.DELETED },
-      { new: true },
-    ).exec();
-  }
-
-  async updateMarketplaceListingStatus(id: string, status: string) {
-    const listing = await this.marketplaceListingModel.findById(id);
-    if (!listing) {
-      throw new NotFoundException('Listing not found');
-    }
-
-    if (!Object.values(ListingStatus).includes(status as ListingStatus)) {
-      throw new BadRequestException('Invalid status');
-    }
-
-    return this.marketplaceListingModel.findByIdAndUpdate(
-      id,
-      { status },
-      { new: true },
-    ).exec();
-  }
-
-  async getAllMarketplaceReports(resolved?: boolean) {
-    const query: any = {};
-    if (resolved !== undefined) {
-      query.isResolved = resolved;
-    }
-
-    return this.marketplaceReportModel
-      .find(query)
-      .populate('listingId', 'title price images')
-      .populate('reportedBy', 'fullName phoneNumber')
-      .sort({ createdAt: -1 })
-      .exec();
-  }
-
-  async resolveMarketplaceReport(id: string) {
-    const report = await this.marketplaceReportModel.findById(id);
-    if (!report) {
-      throw new NotFoundException('Report not found');
-    }
-
-    return this.marketplaceReportModel.findByIdAndUpdate(
-      id,
-      { isResolved: true },
-      { new: true },
-    ).exec();
-  }
-
-  async getAllMarketplaceChats() {
-    return this.marketplaceChatModel
-      .find({ isActive: true })
-      .populate('listingId', 'title price images')
-      .populate('sellerId', 'fullName phoneNumber')
-      .populate('buyerId', 'fullName phoneNumber')
-      .sort({ lastMessageAt: -1, updatedAt: -1 })
-      .exec();
-  }
-
-  async getMarketplaceStats() {
-    const totalListings = await this.marketplaceListingModel.countDocuments({
-      status: { $ne: ListingStatus.DELETED },
-    });
-    const activeListings = await this.marketplaceListingModel.countDocuments({
-      status: ListingStatus.ACTIVE,
-    });
-    const soldListings = await this.marketplaceListingModel.countDocuments({
-      status: ListingStatus.SOLD,
-    });
-    const totalReports = await this.marketplaceReportModel.countDocuments({
-      isResolved: false,
-    });
-    const totalChats = await this.marketplaceChatModel.countDocuments({
-      isActive: true,
-    });
-
-    // Category breakdown
-    const categoryStats = await this.marketplaceListingModel.aggregate([
-      {
-        $match: { status: { $ne: ListingStatus.DELETED } },
-      },
-      {
-        $group: {
-          _id: '$category',
-          count: { $sum: 1 },
-        },
-      },
-      {
-        $sort: { count: -1 },
-      },
-    ]);
-
-    return {
-      totalListings,
-      activeListings,
-      soldListings,
-      totalReports,
-      totalChats,
-      categoryStats,
-    };
   }
 }

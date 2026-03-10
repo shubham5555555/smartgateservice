@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { StaffService } from './staff.service';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -44,5 +55,19 @@ export class StaffController {
   @Post(':id/check-out')
   async checkOut(@Param('id') id: string) {
     return this.staffService.checkOut(id);
+  }
+
+  @Put(':id')
+  async updateStaff(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() updateDto: Partial<any>,
+  ) {
+    return this.staffService.updateStaff(req.user.userId, id, updateDto);
+  }
+
+  @Delete(':id')
+  async deleteStaff(@Request() req, @Param('id') id: string) {
+    return this.staffService.deleteStaff(req.user.userId, id);
   }
 }

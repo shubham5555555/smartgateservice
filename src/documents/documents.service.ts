@@ -7,7 +7,8 @@ import { CreateDocumentDto } from './dto/create-document.dto';
 @Injectable()
 export class DocumentsService {
   constructor(
-    @InjectModel(DocumentFile.name) private documentModel: Model<DocumentDocument>,
+    @InjectModel(DocumentFile.name)
+    private documentModel: Model<DocumentDocument>,
   ) {}
 
   async createDocument(userId: string, createDocumentDto: CreateDocumentDto) {

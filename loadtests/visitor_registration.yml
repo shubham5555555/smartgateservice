@@ -1,0 +1,19 @@
+config:
+  target: "http://localhost:5050"
+  phases:
+    - duration: 60
+      arrivalRate: 10
+scenarios:
+  - name: Visitor self-register
+    flow:
+      - post:
+          url: "/visitors/self-register"
+          json:
+            name: "Load Tester"
+            phoneNumber: "9999999999"
+            type: "Guest"
+            residentEmail: "resident@example.com"
+            purpose: "Load test"
+            expectedDate: "{{ now }}"
+            expectedTime: "12:00"
+

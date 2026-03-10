@@ -14,15 +14,17 @@ import { SearchModule } from './search/search.module';
 import { AdminModule } from './admin/admin.module';
 import { ComplaintsModule } from './complaints/complaints.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
-import { PackagesModule } from './packages/packages.module';
+import { ParcelsModule } from './parcels/parcels.module';
 import { DocumentsModule } from './documents/documents.module';
 import { EmergencyModule } from './emergency/emergency.module';
 import { PetsModule } from './pets/pets.module';
-import { ChatModule } from './chat/chat.module';
 import { EventsModule } from './events/events.module';
 import { NotificationsModule } from './notifications/notifications.module';
-import { MarketplaceModule } from './marketplace/marketplace.module';
 import { CommonModule } from './common/common.module';
+import { BuildingsModule } from './buildings/buildings.module';
+import { RemindersModule } from './reminders/reminders.module';
+import { ContactsModule } from './contacts/contacts.module';
+import { MetricsController } from './metrics/metrics.controller';
 
 @Module({
   imports: [
@@ -33,7 +35,10 @@ import { CommonModule } from './common/common.module';
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        uri: configService.get<string>('MONGODB_URI', 'mongodb://localhost:27017/smartgate'),
+        uri: configService.get<string>(
+          'MONGODB_URI',
+          'mongodb://localhost:27017/smartgate',
+        ),
       }),
       inject: [ConfigService],
     }),
@@ -49,16 +54,17 @@ import { CommonModule } from './common/common.module';
     AdminModule,
     ComplaintsModule,
     VehiclesModule,
-    PackagesModule,
+    ParcelsModule,
     DocumentsModule,
     EmergencyModule,
     PetsModule,
-    ChatModule,
     EventsModule,
     NotificationsModule,
-    MarketplaceModule,
+    BuildingsModule,
+    RemindersModule,
+    ContactsModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, MetricsController],
   providers: [AppService],
 })
 export class AppModule {}

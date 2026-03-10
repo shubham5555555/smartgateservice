@@ -1,15 +1,26 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Vehicle, VehicleDocument } from '../schemas/vehicle.schema';
-import { VehicleEntry, VehicleEntryDocument, EntryType } from '../schemas/vehicle-entry.schema';
+import {
+  VehicleEntry,
+  VehicleEntryDocument,
+  EntryType,
+} from '../schemas/vehicle-entry.schema';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 
 @Injectable()
 export class VehiclesService {
   constructor(
     @InjectModel(Vehicle.name) private vehicleModel: Model<VehicleDocument>,
-    @InjectModel(VehicleEntry.name) private entryModel: Model<VehicleEntryDocument>,
+    @InjectModel(VehicleEntry.name)
+    private entryModel: Model<VehicleEntryDocument>,
   ) {}
 
   async createVehicle(userId: string, createVehicleDto: CreateVehicleDto) {
@@ -22,7 +33,9 @@ export class VehiclesService {
       });
 
       if (existingVehicle) {
-        throw new ConflictException('Vehicle with this number already exists for your account');
+        throw new ConflictException(
+          'Vehicle with this number already exists for your account',
+        );
       }
 
       const vehicle = new this.vehicleModel({
@@ -32,10 +45,15 @@ export class VehiclesService {
 
       return await vehicle.save();
     } catch (error) {
-      if (error instanceof ConflictException || error instanceof NotFoundException) {
+      if (
+        error instanceof ConflictException ||
+        error instanceof NotFoundException
+      ) {
         throw error;
       }
-      throw new BadRequestException(`Failed to create vehicle: ${error.message}`);
+      throw new BadRequestException(
+        `Failed to create vehicle: ${error.message}`,
+      );
     }
   }
 
@@ -54,7 +72,12 @@ export class VehiclesService {
     return vehicle;
   }
 
-  async recordEntry(vehicleId: string, entryType: string, gateNumber?: string, guardName?: string) {
+  async recordEntry(
+    vehicleId: string,
+    entryType: string,
+    gateNumber?: string,
+    guardName?: string,
+  ) {
     const vehicle = await this.vehicleModel.findById(vehicleId);
     if (!vehicle) {
       throw new NotFoundException('Vehicle not found');
@@ -77,5 +100,19 @@ export class VehiclesService {
       .find({ vehicleId: new Types.ObjectId(vehicleId) })
       .sort({ timestamp: -1 })
       .exec();
+  }
+
+  async deleteVehicle(userId: string, vehicleId: string) {
+    const vehicle = await this.vehicleModel.findById(vehicleId);
+    if (!vehicle) {
+      throw new NotFoundException('Vehicle not found');
+    }
+    if (vehicle.userId.toString() !== userId) {
+      throw new ForbiddenException('You can only remove your own vehicles');
+    }
+    // Soft-delete: set isActive = false
+    vehicle.isActive = false;
+    await vehicle.save();
+    return { message: 'Vehicle removed successfully' };
   }
 }

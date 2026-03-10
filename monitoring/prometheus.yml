@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'smartgate-api'
+    static_configs:
+      - targets: ['localhost:5050'] # update to your instances
+    metrics_path: /metrics
+

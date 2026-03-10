@@ -10,7 +10,7 @@ export class CloudinaryService {
   constructor(private configService: ConfigService) {
     // Try CLOUDINARY_URL first (alternative format)
     const cloudinaryUrl = this.configService.get<string>('CLOUDINARY_URL');
-    
+
     if (cloudinaryUrl) {
       // Parse CLOUDINARY_URL format: cloudinary://api_key:api_secret@cloud_name
       try {
@@ -19,7 +19,9 @@ export class CloudinaryService {
         });
         // Cloudinary SDK can parse CLOUDINARY_URL automatically if set as env var
         // But we'll set it explicitly for better control
-        const urlMatch = cloudinaryUrl.match(/cloudinary:\/\/([^:]+):([^@]+)@(.+)/);
+        const urlMatch = cloudinaryUrl.match(
+          /cloudinary:\/\/([^:]+):([^@]+)@(.+)/,
+        );
         if (urlMatch) {
           const [, apiKey, apiSecret, cloudName] = urlMatch;
           cloudinary.config({
@@ -33,8 +35,10 @@ export class CloudinaryService {
           this.logger.log(`   API Key: ${apiKey.substring(0, 5)}...`);
           return;
         }
-      } catch (error) {
-        this.logger.warn('Failed to parse CLOUDINARY_URL, trying individual credentials...');
+      } catch {
+        this.logger.warn(
+          'Failed to parse CLOUDINARY_URL, trying individual credentials...',
+        );
       }
     }
 
@@ -45,11 +49,15 @@ export class CloudinaryService {
 
     // Validate credentials
     if (!cloudName || !apiKey || !apiSecret) {
-      this.logger.error('❌ Cloudinary credentials are missing! Please check your .env file.');
+      this.logger.error(
+        '❌ Cloudinary credentials are missing! Please check your .env file.',
+      );
       this.logger.error(`Cloud Name: ${cloudName ? '✅' : '❌'}`);
       this.logger.error(`API Key: ${apiKey ? '✅' : '❌'}`);
       this.logger.error(`API Secret: ${apiSecret ? '✅' : '❌'}`);
-      throw new Error('Cloudinary credentials are missing. Please check your .env file.');
+      throw new Error(
+        'Cloudinary credentials are missing. Please check your .env file.',
+      );
     }
 
     // Configure Cloudinary
@@ -75,10 +83,10 @@ export class CloudinaryService {
   async uploadFile(
     file: Express.Multer.File,
     folder: string = 'smartgate',
-    transformation?: any,
+    transformation?: Record<string, unknown>,
   ): Promise<string> {
     return new Promise((resolve, reject) => {
-      const uploadOptions: any = {
+      const uploadOptions: Record<string, unknown> = {
         folder: folder,
         resource_type: 'auto', // Automatically detect image, video, raw
         public_id: `${Date.now()}-${Math.random().toString(36).substring(7)}`,
@@ -92,20 +100,36 @@ export class CloudinaryService {
       // Convert buffer to data URI for Cloudinary
       const dataUri = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
 
-      cloudinary.uploader.upload(
+      void cloudinary.uploader.upload(
         dataUri,
-        uploadOptions,
-        (error: UploadApiErrorResponse | undefined, result: UploadApiResponse | undefined) => {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+        uploadOptions as any,
+        (
+          error: UploadApiErrorResponse | undefined,
+          result: UploadApiResponse | undefined,
+        ) => {
           if (error) {
             this.logger.error('Cloudinary upload error:', error);
-            
+
             // Provide helpful error messages for common issues
             if (error.http_code === 401) {
-              this.logger.error('❌ Authentication failed. Please verify your Cloudinary credentials:');
-              this.logger.error('   1. Check your Cloudinary dashboard: https://console.cloudinary.com/');
-              this.logger.error('   2. Verify CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in .env');
-              this.logger.error('   3. Make sure there are no extra spaces or quotes in the .env file');
-              reject(new Error(`Cloudinary authentication failed: ${error.message}. Please verify your credentials in .env file.`));
+              this.logger.error(
+                '❌ Authentication failed. Please verify your Cloudinary credentials:',
+              );
+              this.logger.error(
+                '   1. Check your Cloudinary dashboard: https://console.cloudinary.com/',
+              );
+              this.logger.error(
+                '   2. Verify CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in .env',
+              );
+              this.logger.error(
+                '   3. Make sure there are no extra spaces or quotes in the .env file',
+              );
+              reject(
+                new Error(
+                  `Cloudinary authentication failed: ${error.message}. Please verify your credentials in .env file.`,
+                ),
+              );
             } else {
               reject(new Error(`Failed to upload file: ${error.message}`));
             }
@@ -117,7 +141,9 @@ export class CloudinaryService {
             return;
           }
 
-          this.logger.log(`✅ File uploaded successfully: ${result.secure_url}`);
+          this.logger.log(
+            `✅ File uploaded successfully: ${result.secure_url}`,
+          );
           resolve(result.secure_url);
         },
       );
@@ -134,9 +160,11 @@ export class CloudinaryService {
   async uploadFiles(
     files: Express.Multer.File[],
     folder: string = 'smartgate',
-    transformation?: any,
+    transformation?: Record<string, unknown>,
   ): Promise<string[]> {
-    const uploadPromises = files.map((file) => this.uploadFile(file, folder, transformation));
+    const uploadPromises = files.map((file) =>
+      this.uploadFile(file, folder, transformation),
+    );
     return Promise.all(uploadPromises);
   }
 
@@ -154,7 +182,7 @@ export class CloudinaryService {
     width?: number,
     height?: number,
   ): Promise<string> {
-    const transformation: any = {
+    const transformation: Record<string, unknown> = {
       fetch_format: 'auto',
       quality: 'auto',
     };
@@ -269,10 +297,11 @@ export class CloudinaryService {
    */
   async deleteFile(publicId: string): Promise<any> {
     return new Promise((resolve, reject) => {
-      cloudinary.uploader.destroy(publicId, (error, result) => {
+      void cloudinary.uploader.destroy(publicId, (error: any, result: any) => {
         if (error) {
           this.logger.error('Cloudinary delete error:', error);
-          reject(new Error(`Failed to delete file: ${error.message}`));
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+          reject(new Error(`Failed to delete file: ${String(error.message)}`));
           return;
         }
         this.logger.log(`✅ File deleted successfully: ${publicId}`);
@@ -288,7 +317,9 @@ export class CloudinaryService {
    */
   extractPublicId(url: string): string | null {
     try {
-      const matches = url.match(/\/v\d+\/(.+)\.(jpg|jpeg|png|gif|webp|pdf|doc|docx|txt|mp4|mp3|zip)/i);
+      const matches = url.match(
+        /\/v\d+\/(.+)\.(jpg|jpeg|png|gif|webp|pdf|doc|docx|txt|mp4|mp3|zip)/i,
+      );
       if (matches && matches[1]) {
         return matches[1];
       }
@@ -305,15 +336,19 @@ export class CloudinaryService {
    * @param transformation - Transformation options
    * @returns Optimized URL
    */
-  getOptimizedUrl(url: string, transformation?: any): string {
+  getOptimizedUrl(
+    url: string,
+    transformation?: Record<string, unknown>,
+  ): string {
     try {
       const publicId = this.extractPublicId(url);
       if (!publicId) {
         return url; // Return original if can't extract public ID
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
       return cloudinary.url(publicId, {
-        ...transformation,
+        ...(transformation as any),
         secure: true,
       });
     } catch (error) {

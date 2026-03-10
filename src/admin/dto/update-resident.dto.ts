@@ -1,5 +1,4 @@
-import { IsEmail, IsOptional, IsEnum, IsString } from 'class-validator';
-import { ResidentType, BuildingType } from './create-resident.dto';
+import { IsEmail, IsOptional, IsString } from 'class-validator';
 
 export class UpdateResidentDto {
   @IsOptional()
@@ -19,12 +18,12 @@ export class UpdateResidentDto {
   flatNo?: string;
 
   @IsOptional()
-  @IsEnum(BuildingType, { message: 'Invalid building type' })
-  building?: BuildingType;
+  @IsString()
+  building?: string;
 
   @IsOptional()
-  @IsEnum(ResidentType, { message: 'Invalid resident type' })
-  residentType?: ResidentType;
+  @IsString()
+  residentType?: string;
 
   @IsOptional()
   @IsString()

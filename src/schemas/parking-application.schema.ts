@@ -42,4 +42,5 @@ export class ParkingApplication {
   notes?: string;
 }
 
-export const ParkingApplicationSchema = SchemaFactory.createForClass(ParkingApplication);
+export const ParkingApplicationSchema =
+  SchemaFactory.createForClass(ParkingApplication);

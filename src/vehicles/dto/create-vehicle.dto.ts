@@ -1,9 +1,15 @@
-import { IsNotEmpty, IsString, IsOptional, IsEnum, IsDateString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsDateString,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { VehicleType } from '../../schemas/vehicle.schema';
 
 export class CreateVehicleDto {
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Vehicle registration number',
     example: 'MH12AB1234',
     required: true,
@@ -12,7 +18,7 @@ export class CreateVehicleDto {
   @IsString()
   vehicleNumber: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Type of vehicle',
     enum: VehicleType,
     example: VehicleType.CAR,
@@ -22,7 +28,7 @@ export class CreateVehicleDto {
   @IsEnum(VehicleType)
   vehicleType: VehicleType;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Vehicle brand',
     example: 'Toyota',
     required: true,
@@ -31,7 +37,7 @@ export class CreateVehicleDto {
   @IsString()
   brand: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Vehicle model',
     example: 'Camry',
     required: true,
@@ -40,7 +46,7 @@ export class CreateVehicleDto {
   @IsString()
   model: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Vehicle color',
     example: 'White',
     required: false,
@@ -49,7 +55,7 @@ export class CreateVehicleDto {
   @IsString()
   color?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'RC (Registration Certificate) number',
     example: 'RC123456789',
     required: false,
@@ -58,7 +64,7 @@ export class CreateVehicleDto {
   @IsString()
   rcNumber?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Insurance policy number',
     example: 'INS123456789',
     required: false,
@@ -67,7 +73,7 @@ export class CreateVehicleDto {
   @IsString()
   insuranceNumber?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Insurance expiry date (ISO 8601 format)',
     example: '2025-12-31',
     required: false,
@@ -76,7 +82,7 @@ export class CreateVehicleDto {
   @IsDateString()
   insuranceExpiry?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'URL to RC document',
     example: 'https://example.com/rc.pdf',
     required: false,
@@ -85,7 +91,7 @@ export class CreateVehicleDto {
   @IsString()
   rcDocument?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'URL to insurance document',
     example: 'https://example.com/insurance.pdf',
     required: false,
@@ -94,7 +100,7 @@ export class CreateVehicleDto {
   @IsString()
   insuranceDocument?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Additional notes',
     example: 'Parked in basement',
     required: false,

@@ -1,10 +1,18 @@
-import { IsNotEmpty, IsString, IsEnum, IsDateString, IsOptional } from 'class-validator';
-import { AmenityType } from '../../schemas/amenity-booking.schema';
+import {
+  IsNotEmpty,
+  IsString,
+  IsDateString,
+  IsOptional,
+} from 'class-validator';
 
 export class CreateBookingDto {
+  @IsOptional()
+  @IsString()
+  amenityId?: string;
+
   @IsNotEmpty()
-  @IsEnum(AmenityType)
-  amenityType: AmenityType;
+  @IsString()
+  amenityType: string;
 
   @IsNotEmpty()
   @IsDateString()

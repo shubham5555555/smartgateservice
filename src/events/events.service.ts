@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Event, EventDocument, EventStatus } from '../schemas/event.schema';
@@ -14,7 +19,10 @@ export class EventsService {
     @InjectModel(User.name) private userModel: Model<UserDocument>,
   ) {}
 
-  async create(createEventDto: CreateEventDto, userId: string): Promise<EventDocument> {
+  async create(
+    createEventDto: CreateEventDto,
+    userId: string,
+  ): Promise<EventDocument> {
     const user = await this.userModel.findById(userId).exec();
     if (!user) {
       throw new NotFoundException('User not found');
@@ -33,7 +41,7 @@ export class EventsService {
 
   async findAll(userId?: string): Promise<EventDocument[]> {
     const query: any = {};
-    
+
     // If userId provided, show public events or events where user is invited
     if (userId) {
       query.$or = [
@@ -96,7 +104,11 @@ export class EventsService {
     return event;
   }
 
-  async update(id: string, updateEventDto: UpdateEventDto, userId: string): Promise<EventDocument> {
+  async update(
+    id: string,
+    updateEventDto: UpdateEventDto,
+    userId: string,
+  ): Promise<EventDocument> {
     const event = await this.eventModel.findById(id).exec();
 
     if (!event) {
@@ -109,7 +121,9 @@ export class EventsService {
     }
 
     if (updateEventDto.startDate) {
-      updateEventDto.startDate = new Date(updateEventDto.startDate as any) as any;
+      updateEventDto.startDate = new Date(
+        updateEventDto.startDate as any,
+      ) as any;
     }
     if (updateEventDto.endDate) {
       updateEventDto.endDate = new Date(updateEventDto.endDate as any) as any;
@@ -134,7 +148,11 @@ export class EventsService {
     await this.eventModel.findByIdAndDelete(id).exec();
   }
 
-  async rsvp(id: string, rsvpDto: RsvpEventDto, userId: string): Promise<EventDocument> {
+  async rsvp(
+    id: string,
+    rsvpDto: RsvpEventDto,
+    userId: string,
+  ): Promise<EventDocument> {
     const event = await this.eventModel.findById(id).exec();
 
     if (!event) {
@@ -157,13 +175,17 @@ export class EventsService {
       }
 
       // Check max attendees
-      if (event.maxAttendees > 0 && event.currentAttendees >= event.maxAttendees) {
+      if (
+        event.maxAttendees > 0 &&
+        event.currentAttendees >= event.maxAttendees
+      ) {
         throw new BadRequestException('Event is full');
       }
 
       event.rsvps.push({
         userId: new Types.ObjectId(userId),
-        userName: user.fullName || user.phoneNumber,
+        userName:
+          user.fullName || user.phoneNumber || user.email || 'Unknown User',
         rsvpDate: new Date(),
       });
       event.currentAttendees += 1;
@@ -180,7 +202,11 @@ export class EventsService {
     return event.save();
   }
 
-  async addPhoto(id: string, photoUrl: string, userId: string): Promise<EventDocument> {
+  async addPhoto(
+    id: string,
+    photoUrl: string,
+    userId: string,
+  ): Promise<EventDocument> {
     const event = await this.eventModel.findById(id).exec();
 
     if (!event) {
@@ -200,7 +226,11 @@ export class EventsService {
     return event.save();
   }
 
-  async removePhoto(id: string, photoUrl: string, userId: string): Promise<EventDocument> {
+  async removePhoto(
+    id: string,
+    photoUrl: string,
+    userId: string,
+  ): Promise<EventDocument> {
     const event = await this.eventModel.findById(id).exec();
 
     if (!event) {

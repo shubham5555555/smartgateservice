@@ -1,4 +1,11 @@
-import { IsString, IsEnum, IsOptional, IsNumber, IsDateString, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsEnum,
+  IsOptional,
+  IsNumber,
+  IsDateString,
+  IsBoolean,
+} from 'class-validator';
 import { PetType } from '../../schemas/pet.schema';
 
 export class CreatePetDto {

@@ -1,4 +1,14 @@
-import { IsString, IsNotEmpty, IsDateString, IsOptional, IsEnum, IsNumber, Min, IsBoolean, IsArray } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsDateString,
+  IsOptional,
+  IsEnum,
+  IsNumber,
+  Min,
+  IsBoolean,
+  IsArray,
+} from 'class-validator';
 import { EventType, EventStatus } from '../../schemas/event.schema';
 
 export class CreateEventDto {

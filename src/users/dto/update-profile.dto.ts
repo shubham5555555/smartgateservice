@@ -3,7 +3,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { UserRole } from '../../schemas/user.schema';
 
 export class UpdateProfileDto {
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Full name of the user',
     example: 'John Doe',
     required: false,
@@ -12,7 +12,7 @@ export class UpdateProfileDto {
   @IsString()
   fullName?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Email address',
     example: 'john.doe@example.com',
     required: false,
@@ -21,7 +21,7 @@ export class UpdateProfileDto {
   @IsEmail()
   email?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'URL to profile photo',
     example: 'https://example.com/profile.jpg',
     required: false,
@@ -30,7 +30,7 @@ export class UpdateProfileDto {
   @IsString()
   profilePhoto?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'User role',
     enum: UserRole,
     example: UserRole.OWNER,
@@ -40,7 +40,16 @@ export class UpdateProfileDto {
   @IsEnum(UserRole)
   role?: UserRole;
 
-  @ApiProperty({ 
+  @ApiProperty({
+    description: 'Building name',
+    example: 'Tower A',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  building?: string;
+
+  @ApiProperty({
     description: 'Building block',
     example: 'Block A',
     required: false,
@@ -49,7 +58,7 @@ export class UpdateProfileDto {
   @IsString()
   block?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Flat number',
     example: '101',
     required: false,
@@ -58,7 +67,25 @@ export class UpdateProfileDto {
   @IsString()
   flat?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
+    description: 'Flat number (alternative field)',
+    example: '101',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  flatNo?: string;
+
+  @ApiProperty({
+    description: 'Phone number',
+    example: '+1234567890',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  phoneNumber?: string;
+
+  @ApiProperty({
     description: 'Residential address',
     example: '123 Main Street',
     required: false,
@@ -67,7 +94,7 @@ export class UpdateProfileDto {
   @IsString()
   address?: string;
 
-  @ApiProperty({ 
+  @ApiProperty({
     description: 'Emergency contact name',
     example: 'Jane Doe',
     required: false,

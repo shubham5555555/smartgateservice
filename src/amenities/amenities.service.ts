@@ -1,45 +1,81 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { AmenityBooking, AmenityBookingDocument, AmenityType, BookingStatus } from '../schemas/amenity-booking.schema';
+import {
+  AmenityBooking,
+  AmenityBookingDocument,
+  BookingStatus,
+  PaymentStatus,
+} from '../schemas/amenity-booking.schema';
+import { Amenity, AmenityDocument } from '../schemas/amenity.schema';
 import { CreateBookingDto } from './dto/create-booking.dto';
 
 @Injectable()
 export class AmenitiesService {
   constructor(
-    @InjectModel(AmenityBooking.name) private bookingModel: Model<AmenityBookingDocument>,
+    @InjectModel(AmenityBooking.name)
+    private bookingModel: Model<AmenityBookingDocument>,
+    @InjectModel(Amenity.name)
+    private amenityModel: Model<AmenityDocument>,
   ) {}
+
+  async listAmenities() {
+    return this.amenityModel
+      .find({ isActive: true })
+      .sort({ name: 1 })
+      .exec();
+  }
 
   async createBooking(userId: string, createDto: CreateBookingDto) {
     const bookingDate = new Date(createDto.bookingDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Check if booking date is in the past
     if (bookingDate < today) {
       throw new BadRequestException('Cannot book amenities for past dates');
     }
 
-    // Check if booking date is more than 30 days in the future
     const maxDate = new Date();
     maxDate.setDate(maxDate.getDate() + 30);
     if (bookingDate > maxDate) {
-      throw new BadRequestException('Cannot book amenities more than 30 days in advance');
+      throw new BadRequestException(
+        'Cannot book amenities more than 30 days in advance',
+      );
     }
 
-    // Check for conflicting bookings (same amenity, date, and time slot)
+    // Look up amenity config — prefer ID if provided, fall back to name match
+    const amenityConfig = await (createDto.amenityId
+      ? this.amenityModel.findOne({ _id: createDto.amenityId, isActive: true }).exec()
+      : this.amenityModel.findOne({ name: createDto.amenityType, isActive: true }).exec());
+    const fee = amenityConfig?.fee ?? 0;
+
+    // Validate time slot is in the amenity's available slots
+    if (
+      amenityConfig?.availableSlots?.length &&
+      !amenityConfig.availableSlots.includes(createDto.timeSlot)
+    ) {
+      throw new BadRequestException('Invalid time slot for this amenity');
+    }
+
+    // Check for conflicting bookings
     const conflictingBooking = await this.bookingModel.findOne({
       amenityType: createDto.amenityType,
       bookingDate: {
-        $gte: new Date(bookingDate.setHours(0, 0, 0, 0)),
-        $lt: new Date(bookingDate.setHours(23, 59, 59, 999)),
+        $gte: new Date(new Date(createDto.bookingDate).setHours(0, 0, 0, 0)),
+        $lt: new Date(new Date(createDto.bookingDate).setHours(23, 59, 59, 999)),
       },
       timeSlot: createDto.timeSlot,
       status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
     });
 
     if (conflictingBooking) {
-      throw new BadRequestException('This time slot is already booked for the selected amenity');
+      throw new BadRequestException(
+        'This time slot is already booked for the selected amenity',
+      );
     }
 
     const booking = new this.bookingModel({
@@ -47,6 +83,8 @@ export class AmenitiesService {
       userId: new Types.ObjectId(userId),
       bookingDate: new Date(createDto.bookingDate),
       status: BookingStatus.CONFIRMED,
+      fee,
+      paymentStatus: fee > 0 ? PaymentStatus.PENDING : PaymentStatus.FREE,
     });
 
     return booking.save();
@@ -93,7 +131,6 @@ export class AmenitiesService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Check if booking is in the past
     if (bookingDate < today) {
       throw new BadRequestException('Cannot cancel past bookings');
     }
@@ -102,23 +139,24 @@ export class AmenitiesService {
     return booking.save();
   }
 
-  async getAvailableTimeSlots(amenityType: AmenityType, date: string) {
+  async getAvailableTimeSlots(amenityName: string, date: string) {
     const bookingDate = new Date(date);
     bookingDate.setHours(0, 0, 0, 0);
 
-    const bookings = await this.bookingModel.find({
-      amenityType,
-      bookingDate: {
-        $gte: new Date(bookingDate),
-        $lt: new Date(bookingDate.setHours(23, 59, 59, 999)),
-      },
-      status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
-    });
+    const [bookings, amenityConfig] = await Promise.all([
+      this.bookingModel.find({
+        amenityType: amenityName,
+        bookingDate: {
+          $gte: new Date(bookingDate),
+          $lt: new Date(new Date(date).setHours(23, 59, 59, 999)),
+        },
+        status: { $in: [BookingStatus.PENDING, BookingStatus.CONFIRMED] },
+      }),
+      this.amenityModel.findOne({ name: amenityName }).exec(),
+    ]);
 
     const bookedSlots = bookings.map((b) => b.timeSlot);
-
-    // All available time slots
-    const allSlots = [
+    const allSlots = amenityConfig?.availableSlots ?? [
       '6:00 AM - 8:00 AM',
       '8:00 AM - 10:00 AM',
       '10:00 AM - 12:00 PM',
@@ -132,6 +170,7 @@ export class AmenitiesService {
     return {
       available: allSlots.filter((slot) => !bookedSlots.includes(slot)),
       booked: bookedSlots,
+      fee: amenityConfig?.fee ?? 0,
     };
   }
 }

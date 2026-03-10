@@ -51,7 +51,19 @@ export class Visitor {
   expectedDate?: Date;
 
   @Prop()
+  purpose?: string;
+
+  @Prop()
+  vehicleNumber?: string;
+
+  @Prop({ default: 1 })
+  guestCount?: number;
+
+  @Prop()
   qrCode?: string; // QR code data for visitor verification
 }
 
 export const VisitorSchema = SchemaFactory.createForClass(Visitor);
+
+// Index phoneNumber for fast public lookup
+VisitorSchema.index({ phoneNumber: 1 });

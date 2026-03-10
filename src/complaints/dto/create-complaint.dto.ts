@@ -1,5 +1,16 @@
-import { IsNotEmpty, IsString, IsOptional, IsEnum, IsArray } from 'class-validator';
-import { ComplaintPriority } from '../../schemas/complaint.schema';
+import {
+  IsNotEmpty,
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsArray,
+  IsNumber,
+  IsDateString,
+} from 'class-validator';
+import {
+  ComplaintPriority,
+  ComplaintCategory,
+} from '../../schemas/complaint.schema';
 
 export class CreateComplaintDto {
   @IsNotEmpty({ message: 'Title is required' })
@@ -14,12 +25,20 @@ export class CreateComplaintDto {
   @IsEnum(ComplaintPriority)
   priority?: ComplaintPriority;
 
-  @IsOptional()
-  @IsString()
-  category?: string;
+  @IsNotEmpty({ message: 'Category is required' })
+  @IsEnum(ComplaintCategory)
+  category: ComplaintCategory;
 
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   attachments?: string[];
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string;
+
+  @IsOptional()
+  @IsNumber()
+  estimatedTime?: number;
 }

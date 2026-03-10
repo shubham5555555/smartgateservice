@@ -8,25 +8,42 @@ import { User, UserSchema } from '../schemas/user.schema';
 import { Visitor, VisitorSchema } from '../schemas/visitor.schema';
 import { Maintenance, MaintenanceSchema } from '../schemas/maintenance.schema';
 import { Staff, StaffSchema } from '../schemas/staff.schema';
+import {
+  StaffActivity,
+  StaffActivitySchema,
+} from '../schemas/staff-activity.schema';
 import { Complaint, ComplaintSchema } from '../schemas/complaint.schema';
 import { Notice, NoticeSchema } from '../schemas/notice.schema';
-import { AccessRequest, AccessRequestSchema } from '../schemas/access-request.schema';
+import {
+  AccessRequest,
+  AccessRequestSchema,
+} from '../schemas/access-request.schema';
 import { Vehicle, VehicleSchema } from '../schemas/vehicle.schema';
-import { Package, PackageSchema } from '../schemas/package.schema';
+import { Parcel, ParcelSchema } from '../schemas/parcel.schema';
 import { DocumentFile, DocumentSchema } from '../schemas/document.schema';
-import { EmergencyContact, EmergencyContactSchema } from '../schemas/emergency-contact.schema';
+import {
+  EmergencyContact,
+  EmergencyContactSchema,
+} from '../schemas/emergency-contact.schema';
 import { Guard, GuardSchema } from '../schemas/guard.schema';
 import { Pet, PetSchema } from '../schemas/pet.schema';
-import { ChatMessage, ChatMessageSchema } from '../schemas/chat.schema';
 import { Event, EventSchema } from '../schemas/event.schema';
+import { Reminder, ReminderSchema } from '../schemas/reminder.schema';
 import { ParkingSlot, ParkingSlotSchema } from '../schemas/parking-slot.schema';
-import { ParkingApplication, ParkingApplicationSchema } from '../schemas/parking-application.schema';
-import { AmenityBooking, AmenityBookingSchema } from '../schemas/amenity-booking.schema';
-import { MarketplaceListing, MarketplaceListingSchema } from '../schemas/marketplace-listing.schema';
-import { MarketplaceReport, MarketplaceReportSchema } from '../schemas/marketplace-report.schema';
-import { MarketplaceChat, MarketplaceChatSchema } from '../schemas/marketplace-chat.schema';
+import {
+  ParkingApplication,
+  ParkingApplicationSchema,
+} from '../schemas/parking-application.schema';
+import {
+  AmenityBooking,
+  AmenityBookingSchema,
+} from '../schemas/amenity-booking.schema';
+import { Amenity, AmenitySchema } from '../schemas/amenity.schema';
+import { Contact, ContactSchema } from '../schemas/contact.schema';
+import { Building, BuildingSchema } from '../schemas/building.schema';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { forwardRef } from '@nestjs/common';
+import { CommonModule } from '../common/common.module';
 
 @Module({
   imports: [
@@ -35,29 +52,34 @@ import { forwardRef } from '@nestjs/common';
       { name: Visitor.name, schema: VisitorSchema },
       { name: Maintenance.name, schema: MaintenanceSchema },
       { name: Staff.name, schema: StaffSchema },
+      { name: StaffActivity.name, schema: StaffActivitySchema },
       { name: Complaint.name, schema: ComplaintSchema },
       { name: Notice.name, schema: NoticeSchema },
       { name: AccessRequest.name, schema: AccessRequestSchema },
       { name: Vehicle.name, schema: VehicleSchema },
-      { name: Package.name, schema: PackageSchema },
+      { name: Parcel.name, schema: ParcelSchema },
       { name: DocumentFile.name, schema: DocumentSchema },
       { name: EmergencyContact.name, schema: EmergencyContactSchema },
       { name: Guard.name, schema: GuardSchema },
       { name: Pet.name, schema: PetSchema },
-      { name: ChatMessage.name, schema: ChatMessageSchema },
       { name: Event.name, schema: EventSchema },
+      { name: Reminder.name, schema: ReminderSchema },
       { name: ParkingSlot.name, schema: ParkingSlotSchema },
       { name: ParkingApplication.name, schema: ParkingApplicationSchema },
       { name: AmenityBooking.name, schema: AmenityBookingSchema },
-      { name: MarketplaceListing.name, schema: MarketplaceListingSchema },
-      { name: MarketplaceReport.name, schema: MarketplaceReportSchema },
-      { name: MarketplaceChat.name, schema: MarketplaceChatSchema },
+      { name: Amenity.name, schema: AmenitySchema },
+      { name: Contact.name, schema: ContactSchema },
+      { name: Building.name, schema: BuildingSchema },
     ]),
     forwardRef(() => NotificationsModule),
+    CommonModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET', 'your-secret-key-change-in-production'),
+        secret: configService.get<string>(
+          'JWT_SECRET',
+          'your-secret-key-change-in-production',
+        ),
         signOptions: { expiresIn: '24h' },
       }),
       inject: [ConfigService],

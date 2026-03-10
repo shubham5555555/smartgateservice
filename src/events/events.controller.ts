@@ -14,7 +14,14 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiConsumes,
+  ApiParam,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -81,21 +88,26 @@ export class EventsController {
 
   @Post(':id/photos')
   @UseInterceptors(FileInterceptor('photo'))
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Add event photo',
-    description: 'Uploads a photo to Cloudinary and adds it to the event. Only the event creator can add photos.',
+    description:
+      'Uploads a photo to Cloudinary and adds it to the event. Only the event creator can add photos.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiParam({ name: 'id', description: 'Event ID' })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Photo added successfully',
   })
-  @ApiResponse({ 
-    status: 403, 
+  @ApiResponse({
+    status: 403,
     description: 'Only event creator can add photos',
   })
-  async addPhoto(@Param('id') id: string, @Request() req, @UploadedFile() file: Express.Multer.File) {
+  async addPhoto(
+    @Param('id') id: string,
+    @Request() req,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
     if (!file) {
       throw new Error('No file provided');
     }

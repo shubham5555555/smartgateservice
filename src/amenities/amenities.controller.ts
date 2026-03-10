@@ -1,13 +1,26 @@
-import { Controller, Get, Post, Body, Param, Delete, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Delete,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { AmenitiesService } from './amenities.service';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AmenityType } from '../schemas/amenity-booking.schema';
 
 @Controller('amenities')
 @UseGuards(JwtAuthGuard)
 export class AmenitiesController {
   constructor(private readonly amenitiesService: AmenitiesService) {}
+
+  @Get('list')
+  async listAmenities() {
+    return this.amenitiesService.listAmenities();
+  }
 
   @Post('book')
   async createBooking(@Request() req, @Body() createDto: CreateBookingDto) {
@@ -36,7 +49,7 @@ export class AmenitiesController {
 
   @Get('available-slots/:amenityType/:date')
   async getAvailableTimeSlots(
-    @Param('amenityType') amenityType: AmenityType,
+    @Param('amenityType') amenityType: string,
     @Param('date') date: string,
   ) {
     return this.amenitiesService.getAvailableTimeSlots(amenityType, date);

@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { EmergencyService } from './emergency.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -18,7 +26,14 @@ export class EmergencyController {
 
   @Post('sos')
   @UseGuards(JwtAuthGuard)
-  async sendSOS(@Request() req, @Body() body: { location?: string; message?: string }) {
-    return this.emergencyService.sendSOS(req.user.userId, body.location, body.message);
+  async sendSOS(
+    @Request() req,
+    @Body() body: { location?: string; message?: string },
+  ) {
+    return this.emergencyService.sendSOS(
+      req.user.userId,
+      body.location,
+      body.message,
+    );
   }
 }

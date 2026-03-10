@@ -1,4 +1,10 @@
-import { IsNotEmpty, IsString, IsOptional, IsEnum, IsDateString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsDateString,
+} from 'class-validator';
 import { DocumentType } from '../../schemas/document.schema';
 
 export class CreateDocumentDto {

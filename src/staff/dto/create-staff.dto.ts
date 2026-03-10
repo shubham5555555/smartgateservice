@@ -1,4 +1,10 @@
-import { IsNotEmpty, IsString, IsOptional, IsEmail, IsEnum } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsOptional,
+  IsEmail,
+  IsEnum,
+} from 'class-validator';
 import { StaffType } from '../../schemas/staff.schema';
 
 export class CreateStaffDto {

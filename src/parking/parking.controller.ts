@@ -1,5 +1,18 @@
-import { Controller, Get, Post, Body, UseGuards, Request } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiBody,
+} from '@nestjs/swagger';
 import { ParkingService } from './parking.service';
 import { CreateParkingApplicationDto } from './dto/create-application.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -17,7 +30,10 @@ export class ParkingController {
   }
 
   @Post('apply')
-  async createApplication(@Request() req, @Body() createDto: CreateParkingApplicationDto) {
+  async createApplication(
+    @Request() req,
+    @Body() createDto: CreateParkingApplicationDto,
+  ) {
     return this.parkingService.createApplication(req.user.userId, createDto);
   }
 

@@ -1,15 +1,25 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Staff, StaffDocument, StaffStatus } from '../schemas/staff.schema';
-import { StaffActivity, StaffActivityDocument, ActivityStatus } from '../schemas/staff-activity.schema';
+import {
+  StaffActivity,
+  StaffActivityDocument,
+  ActivityStatus,
+} from '../schemas/staff-activity.schema';
 import { CreateStaffDto } from './dto/create-staff.dto';
 
 @Injectable()
 export class StaffService {
   constructor(
     @InjectModel(Staff.name) private staffModel: Model<StaffDocument>,
-    @InjectModel(StaffActivity.name) private activityModel: Model<StaffActivityDocument>,
+    @InjectModel(StaffActivity.name)
+    private activityModel: Model<StaffActivityDocument>,
   ) {}
 
   async createStaff(userId: string, createStaffDto: CreateStaffDto) {
@@ -22,7 +32,9 @@ export class StaffService {
       });
 
       if (existingStaff) {
-        throw new ConflictException('Staff with this phone number already exists for your account');
+        throw new ConflictException(
+          'Staff with this phone number already exists for your account',
+        );
       }
 
       const staff = new this.staffModel({
@@ -31,7 +43,10 @@ export class StaffService {
       });
       return await staff.save();
     } catch (error) {
-      if (error instanceof ConflictException || error instanceof NotFoundException) {
+      if (
+        error instanceof ConflictException ||
+        error instanceof NotFoundException
+      ) {
         throw error;
       }
       throw new BadRequestException(`Failed to create staff: ${error.message}`);
@@ -39,7 +54,9 @@ export class StaffService {
   }
 
   async getStaffByUser(userId: string) {
-    return this.staffModel.find({ userId: new Types.ObjectId(userId), isActive: true }).exec();
+    return this.staffModel
+      .find({ userId: new Types.ObjectId(userId), isActive: true })
+      .exec();
   }
 
   async getStaffById(staffId: string) {
@@ -48,7 +65,7 @@ export class StaffService {
 
   async getStaffActivity(staffId: string, month?: number, year?: number) {
     const query: any = { staffId: new Types.ObjectId(staffId) };
-    
+
     if (month && year) {
       const startDate = new Date(year, month - 1, 1);
       const endDate = new Date(year, month, 0, 23, 59, 59);
@@ -70,10 +87,13 @@ export class StaffService {
     // Create activity record
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     let activity = await this.activityModel.findOne({
       staffId: new Types.ObjectId(staffId),
-      date: { $gte: today, $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000) },
+      date: {
+        $gte: today,
+        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+      },
     });
 
     if (!activity) {
@@ -92,6 +112,32 @@ export class StaffService {
     return activity;
   }
 
+  async updateStaff(userId: string, staffId: string, updateDto: Partial<any>) {
+    const staff = await this.staffModel.findOne({
+      _id: staffId,
+      userId: new Types.ObjectId(userId),
+    });
+    if (!staff) {
+      throw new NotFoundException('Staff not found or not owned by you');
+    }
+    // Prevent overwriting userId
+    delete updateDto.userId;
+    Object.assign(staff, updateDto);
+    return staff.save();
+  }
+
+  async deleteStaff(userId: string, staffId: string) {
+    const staff = await this.staffModel.findOne({
+      _id: staffId,
+      userId: new Types.ObjectId(userId),
+    });
+    if (!staff) {
+      throw new NotFoundException('Staff not found or not owned by you');
+    }
+    staff.isActive = false;
+    return staff.save();
+  }
+
   async checkOut(staffId: string) {
     const staff = await this.staffModel.findById(staffId);
     if (!staff) {
@@ -104,10 +150,13 @@ export class StaffService {
     // Update activity record
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const activity = await this.activityModel.findOne({
       staffId: new Types.ObjectId(staffId),
-      date: { $gte: today, $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000) },
+      date: {
+        $gte: today,
+        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+      },
     });
 
     if (activity) {

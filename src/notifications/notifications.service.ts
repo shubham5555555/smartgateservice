@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User, UserDocument } from '../schemas/user.schema';
 import { Guard, GuardDocument } from '../schemas/guard.schema';
+import { Notification, NotificationDocument } from '../schemas/notification.schema';
 import * as admin from 'firebase-admin';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class NotificationsService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Guard.name) private guardModel: Model<GuardDocument>,
+    @InjectModel(Notification.name) private notificationModel: Model<NotificationDocument>,
   ) {
     this.initializeFirebase();
   }
@@ -28,27 +30,44 @@ export class NotificationsService {
           credential: admin.credential.cert(serviceAccount),
         });
         this.isInitialized = true;
-        this.logger.log('✅ Firebase Admin initialized with service account file');
+        this.logger.log(
+          '✅ Firebase Admin initialized with service account file',
+        );
       } catch (error) {
         // Option 2: Use environment variables
         try {
-          if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+          if (
+            process.env.FIREBASE_PROJECT_ID &&
+            process.env.FIREBASE_PRIVATE_KEY &&
+            process.env.FIREBASE_CLIENT_EMAIL
+          ) {
             this.firebaseApp = admin.initializeApp({
               credential: admin.credential.cert({
                 projectId: process.env.FIREBASE_PROJECT_ID,
-                privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+                privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(
+                  /\\n/g,
+                  '\n',
+                ),
                 clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
               }),
             });
             this.isInitialized = true;
-            this.logger.log('✅ Firebase Admin initialized with environment variables');
+            this.logger.log(
+              '✅ Firebase Admin initialized with environment variables',
+            );
           } else {
-            this.logger.warn('⚠️ Firebase Admin not initialized: Missing environment variables');
-            this.logger.warn('Please configure Firebase Admin SDK (see FIREBASE_NOTIFICATIONS_SETUP.md)');
+            this.logger.warn(
+              '⚠️ Firebase Admin not initialized: Missing environment variables',
+            );
+            this.logger.warn(
+              'Please configure Firebase Admin SDK (see FIREBASE_NOTIFICATIONS_SETUP.md)',
+            );
           }
         } catch (envError) {
           this.logger.warn('⚠️ Firebase Admin not initialized:', envError);
-          this.logger.warn('Please configure Firebase Admin SDK (see FIREBASE_NOTIFICATIONS_SETUP.md)');
+          this.logger.warn(
+            'Please configure Firebase Admin SDK (see FIREBASE_NOTIFICATIONS_SETUP.md)',
+          );
         }
       }
     } else {
@@ -60,8 +79,12 @@ export class NotificationsService {
 
   private checkFirebaseInitialized(): boolean {
     if (!this.isInitialized || !this.firebaseApp) {
-      this.logger.error('❌ Firebase Admin not initialized. Cannot send notifications.');
-      this.logger.error('Please configure Firebase Admin SDK (see FIREBASE_NOTIFICATIONS_SETUP.md)');
+      this.logger.error(
+        '❌ Firebase Admin not initialized. Cannot send notifications.',
+      );
+      this.logger.error(
+        'Please configure Firebase Admin SDK (see FIREBASE_NOTIFICATIONS_SETUP.md)',
+      );
       return false;
     }
     return true;
@@ -81,8 +104,22 @@ export class NotificationsService {
       const user = await this.userModel.findById(userId).exec();
       if (!user || !user.fcmToken) {
         this.logger.warn(`User ${userId} not found or FCM token not available`);
-        return { success: false, message: 'User not found or FCM token not available' };
+        return {
+          success: false,
+          message: 'User not found or FCM token not available',
+        };
       }
+
+      // Save to database
+      const notificationRecord = new this.notificationModel({
+        recipientType: 'User',
+        recipientId: user._id,
+        title,
+        body,
+        type: data?.type || 'general',
+        data,
+      });
+      await notificationRecord.save();
 
       const message = {
         notification: {
@@ -95,7 +132,7 @@ export class NotificationsService {
 
       const response = await admin.messaging().send(message);
       this.logger.log(`Notification sent to user ${userId}: ${response}`);
-      return { success: true, messageId: response };
+      return { success: true, messageId: response, notificationId: notificationRecord._id };
     } catch (error: any) {
       this.logger.error(`Error sending notification to user ${userId}:`, error);
       return { success: false, error: error.message };
@@ -115,9 +152,25 @@ export class NotificationsService {
     try {
       const guard = await this.guardModel.findById(guardId).exec();
       if (!guard || !guard.fcmToken) {
-        this.logger.warn(`Guard ${guardId} not found or FCM token not available`);
-        return { success: false, message: 'Guard not found or FCM token not available' };
+        this.logger.warn(
+          `Guard ${guardId} not found or FCM token not available`,
+        );
+        return {
+          success: false,
+          message: 'Guard not found or FCM token not available',
+        };
       }
+
+      // Save to database
+      const notificationRecord = new this.notificationModel({
+        recipientType: 'Guard',
+        recipientId: guard._id,
+        title,
+        body,
+        type: data?.type || 'general',
+        data,
+      });
+      await notificationRecord.save();
 
       const message = {
         notification: {
@@ -130,9 +183,12 @@ export class NotificationsService {
 
       const response = await admin.messaging().send(message);
       this.logger.log(`Notification sent to guard ${guardId}: ${response}`);
-      return { success: true, messageId: response };
+      return { success: true, messageId: response, notificationId: notificationRecord._id };
     } catch (error: any) {
-      this.logger.error(`Error sending notification to guard ${guardId}:`, error);
+      this.logger.error(
+        `Error sending notification to guard ${guardId}:`,
+        error,
+      );
       return { success: false, error: error.message };
     }
   }
@@ -149,12 +205,26 @@ export class NotificationsService {
 
     try {
       const users = await this.userModel
-        .find({ _id: { $in: userIds.map(id => new Types.ObjectId(id)) }, fcmToken: { $exists: true, $ne: null } })
+        .find({
+          _id: { $in: userIds.map((id) => new Types.ObjectId(id)) },
+          fcmToken: { $exists: true, $ne: null },
+        })
         .exec();
 
       if (users.length === 0) {
         return { success: false, message: 'No users with FCM tokens found' };
       }
+
+      // Save to database
+      const notificationRecords = users.map(user => ({
+        recipientType: 'User',
+        recipientId: user._id,
+        title,
+        body,
+        type: data?.type || 'general',
+        data,
+      }));
+      await this.notificationModel.insertMany(notificationRecords);
 
       const tokens = users.map((u) => u.fcmToken).filter(Boolean) as string[];
       const message = {
@@ -167,14 +237,19 @@ export class NotificationsService {
       };
 
       const response = await admin.messaging().sendEachForMulticast(message);
-      this.logger.log(`Sent ${response.successCount} notifications to ${tokens.length} users`);
+      this.logger.log(
+        `Sent ${response.successCount} notifications to ${tokens.length} users`,
+      );
       return {
         success: true,
         successCount: response.successCount,
         failureCount: response.failureCount,
       };
     } catch (error: any) {
-      this.logger.error('Error sending notifications to multiple users:', error);
+      this.logger.error(
+        'Error sending notifications to multiple users:',
+        error,
+      );
       return { success: false, error: error.message };
     }
   }
@@ -197,8 +272,19 @@ export class NotificationsService {
         return { success: false, message: 'No users with FCM tokens found' };
       }
 
+      // Save to database as broadcast
+      const notificationRecord = new this.notificationModel({
+        recipientType: 'User',
+        // recipientId is empty for broadcast
+        title,
+        body,
+        type: data?.type || 'general',
+        data,
+      });
+      await notificationRecord.save();
+
       const tokens = users.map((u) => u.fcmToken).filter(Boolean) as string[];
-      
+
       // Send in batches of 500 (FCM limit)
       const batchSize = 500;
       let successCount = 0;
@@ -247,8 +333,22 @@ export class NotificationsService {
         .exec();
 
       if (guards.length === 0) {
-        return { success: false, message: 'No active guards with FCM tokens found' };
+        return {
+          success: false,
+          message: 'No active guards with FCM tokens found',
+        };
       }
+
+      // Save to database as broadcast
+      const notificationRecord = new this.notificationModel({
+        recipientType: 'Guard',
+        // recipientId is empty for broadcast
+        title,
+        body,
+        type: data?.type || 'general',
+        data,
+      });
+      await notificationRecord.save();
 
       const tokens = guards.map((g) => g.fcmToken).filter(Boolean) as string[];
       const message = {
@@ -261,7 +361,9 @@ export class NotificationsService {
       };
 
       const response = await admin.messaging().sendEachForMulticast(message);
-      this.logger.log(`Sent ${response.successCount} notifications to ${tokens.length} guards`);
+      this.logger.log(
+        `Sent ${response.successCount} notifications to ${tokens.length} guards`,
+      );
       return {
         success: true,
         successCount: response.successCount,
@@ -271,5 +373,75 @@ export class NotificationsService {
       this.logger.error('Error sending notifications to all guards:', error);
       return { success: false, error: error.message };
     }
+  }
+
+  // --- Notification Retrieval & Management ---
+
+  async getUserNotifications(userId: string) {
+    return this.notificationModel
+      .find({
+        recipientType: 'User',
+        $or: [{ recipientId: new Types.ObjectId(userId) }, { recipientId: { $exists: false } }],
+      })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .exec();
+  }
+
+  async getGuardNotifications(guardId: string) {
+    return this.notificationModel
+      .find({
+        recipientType: 'Guard',
+        $or: [{ recipientId: new Types.ObjectId(guardId) }, { recipientId: { $exists: false } }],
+      })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .exec();
+  }
+
+  async getAdminNotifications() {
+    return this.notificationModel
+      .find({ recipientType: 'Admin' })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .exec();
+  }
+
+  async markAsRead(notificationId: string) {
+    return this.notificationModel.findByIdAndUpdate(
+      notificationId,
+      { isRead: true },
+      { new: true },
+    ).exec();
+  }
+
+  async markAllAsReadForUser(userId: string) {
+    return this.notificationModel.updateMany(
+      { recipientId: new Types.ObjectId(userId), isRead: false },
+      { $set: { isRead: true } },
+    ).exec();
+  }
+
+  async markAllAsReadForGuard(guardId: string) {
+    return this.notificationModel.updateMany(
+      { recipientId: new Types.ObjectId(guardId), isRead: false },
+      { $set: { isRead: true } },
+    ).exec();
+  }
+
+  async sendNotificationToAdmin(
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+  ) {
+    // Admins don't have FCM tokens setup directly in this flow, but we want to log the event persistently.
+    const notificationRecord = new this.notificationModel({
+      recipientType: 'Admin',
+      title,
+      body,
+      type: data?.type || 'general',
+      data,
+    });
+    return await notificationRecord.save();
   }
 }

@@ -1,4 +1,10 @@
-import { IsOptional, IsString, IsEmail, IsEnum, IsBoolean } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsEmail,
+  IsEnum,
+  IsBoolean,
+} from 'class-validator';
 import { StaffType, StaffStatus } from '../../schemas/staff.schema';
 
 export class UpdateStaffAdminDto {

@@ -21,6 +21,12 @@ export enum ParkingType {
 
 @Schema({ timestamps: true })
 export class ParkingSlot {
+  @Prop({ type: Types.ObjectId, ref: 'Building' })
+  building?: Types.ObjectId;
+
+  @Prop()
+  buildingName?: string;
+
   @Prop({ required: true })
   slotNumber: string; // B-204, G-105, etc.
 
@@ -32,6 +38,9 @@ export class ParkingSlot {
 
   @Prop({ enum: SlotType })
   slotType: SlotType;
+
+  @Prop()
+  parkingType?: string;
 
   @Prop({ type: Types.ObjectId, ref: 'User' })
   assignedTo?: Types.ObjectId;
