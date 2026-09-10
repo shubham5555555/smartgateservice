@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Types } from 'mongoose';
 
 export type UserDocument = User & Document;
 
@@ -11,6 +11,14 @@ export enum UserRole {
 
 @Schema({ timestamps: true })
 export class User {
+  /** Tenant (builder) the resident belongs to — derived from the building. */
+  @Prop({ type: Types.ObjectId, ref: 'Organization', index: true })
+  organizationId?: Types.ObjectId;
+
+  /** Resolved building reference; `building` below stays as the display name. */
+  @Prop({ type: Types.ObjectId, ref: 'Building', index: true })
+  buildingId?: Types.ObjectId;
+
   @Prop()
   phoneNumber?: string;
 

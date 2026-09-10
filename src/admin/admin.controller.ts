@@ -13,6 +13,7 @@ import {
   UseInterceptors,
   UploadedFiles,
   UnauthorizedException,
+  Res,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -26,7 +27,10 @@ import {
 } from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { AdminService } from './admin.service';
+import { VisitRulesService } from '../visits/visit-rules.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../tenancy/roles.guard';
+import { Roles } from '../tenancy/roles.decorator';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateResidentDto } from './dto/create-resident.dto';
@@ -35,9 +39,11 @@ import { CreateStaffAdminDto } from './dto/create-staff-admin.dto';
 import { UpdateStaffAdminDto } from './dto/update-staff-admin.dto';
 import { StaffType } from '../schemas/staff.schema';
 import { CreateVisitorDto } from '../visitors/dto/create-visitor.dto';
+import { GuardCheckinDto } from './dto/guard-checkin.dto';
 import { S3Service } from '../common/s3.service';
 
 @ApiTags('Admin')
+@Roles('admin', 'guard') // default for every guarded route; management routes narrow to 'admin'
 @Controller('admin')
 export class AdminController {
   constructor(
@@ -81,26 +87,36 @@ export class AdminController {
   }
 
   @Get('guard/profile')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getGuardProfile(@Request() req) {
     return this.adminService.getGuardById(req.user.userId);
   }
 
+  @Get('guard/sites')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Buildings the calling guard may process (their builder / assigned sites)' })
+  async getGuardSites() {
+    return this.adminService.getGuardSites();
+  }
+
   // Guard Management APIs
   @Get('guards')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllGuards() {
     return this.adminService.getAllGuards();
   }
 
   @Get('guards/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getGuardById(@Param('id') id: string) {
     return this.adminService.getGuardById(id);
   }
 
   @Post('guards')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async createGuard(
     @Body()
     body: {
@@ -111,25 +127,30 @@ export class AdminController {
       email?: string;
       shift?: string;
       gateNumber?: string;
+      organizationId?: string;
+      buildingIds?: string[];
     },
   ) {
     return this.adminService.createGuard(body);
   }
 
   @Put('guards/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateGuard(@Param('id') id: string, @Body() body: any) {
     return this.adminService.updateGuard(id, body);
   }
 
   @Delete('guards/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteGuard(@Param('id') id: string) {
     return this.adminService.deleteGuard(id);
   }
 
   @Post('guards/:id/reset-password')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async resetGuardPassword(
     @Param('id') id: string,
     @Body() body: { password: string },
@@ -138,13 +159,14 @@ export class AdminController {
   }
 
   @Post('guards/:id/generate-password')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async generateGuardPassword(@Param('id') id: string) {
     return this.adminService.generateGuardPassword(id);
   }
 
   @Put('guard/fcm-token')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateGuardFcmToken(
     @Request() req,
     @Body() body: { fcmToken: string },
@@ -158,25 +180,25 @@ export class AdminController {
   }
 
   @Get('auth/me')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getCurrentUser(@Request() req) {
     return this.adminService.getCurrentUser(req.user);
   }
 
   @Post('auth/refresh')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async refreshToken(@Request() req) {
     return this.adminService.refreshToken(req.user);
   }
 
   @Post('auth/change-password')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async changePassword(
     @Request() req,
     @Body() changePasswordDto: ChangePasswordDto,
   ) {
     return this.adminService.changePassword(
-      req.user.email,
+      req.user,
       changePasswordDto.currentPassword,
       changePasswordDto.newPassword,
     );
@@ -184,50 +206,58 @@ export class AdminController {
 
   // Dashboard APIs (protected)
   @Get('dashboard/stats')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getDashboardStats() {
     return this.adminService.getDashboardStats();
   }
 
   @Get('dashboard/visitor-trends')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getVisitorTrends(@Query('period') period: 'week' | 'month' = 'week') {
     return this.adminService.getVisitorTrends(period);
   }
 
   @Get('dashboard/visitor-types')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getVisitorTypes() {
     return this.adminService.getVisitorTypes();
   }
 
   @Get('dashboard/recent-activity')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getRecentActivity() {
     return this.adminService.getRecentActivity();
   }
 
   @Get('dashboard/priority-actions')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getPriorityActions() {
     return this.adminService.getPriorityActions();
   }
 
   // Complaints APIs
   @Get('complaints')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllComplaints() {
     return this.adminService.getAllComplaints();
   }
 
   @Get('complaints/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getComplaintById(@Param('id') id: string) {
     return this.adminService.getComplaintById(id);
   }
 
   @Put('complaints/:id/status')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateComplaintStatus(
     @Param('id') id: string,
     @Body() body: { status: string; note?: string },
@@ -236,7 +266,8 @@ export class AdminController {
   }
 
   @Post('complaints/:id/assign')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async assignStaff(
     @Param('id') id: string,
     @Body() body: { staffId: string },
@@ -245,7 +276,8 @@ export class AdminController {
   }
 
   @Put('complaints/:id/reassign')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async reassignStaff(
     @Param('id') id: string,
     @Body() body: { staffId: string },
@@ -254,52 +286,60 @@ export class AdminController {
   }
 
   @Post('complaints/:id/resolve')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async resolveComplaint(@Param('id') id: string) {
     return this.adminService.resolveComplaint(id);
   }
 
   // Reminders APIs
   @Get('reminders')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllReminders() {
     return this.adminService.getAllReminders();
   }
 
   @Get('reminders/stats')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getReminderStats() {
     return this.adminService.getReminderStats();
   }
 
   @Get('reminders/upcoming')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getUpcomingReminders(@Query('limit') limit?: string) {
     const parsedLimit = limit ? parseInt(limit, 10) : 10;
     return this.adminService.getUpcomingReminders(parsedLimit);
   }
 
   @Get('reminders/overdue')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getOverdueReminders() {
     return this.adminService.getOverdueReminders();
   }
 
   @Get('reminders/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getReminderById(@Param('id') id: string) {
     return this.adminService.getReminderById(id);
   }
 
   // Escalation APIs
   @Get('escalation/stats')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getEscalationStats() {
     return this.adminService.getEscalationStats();
   }
 
   @Post('complaints/:id/escalate')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async escalateComplaint(
     @Param('id') id: string,
     @Body() body: { toLevel: string; reason: string; escalatedBy: string },
@@ -313,13 +353,15 @@ export class AdminController {
   }
 
   @Get('complaints/:id/escalation-history')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getComplaintEscalationHistory(@Param('id') id: string) {
     return this.adminService.getComplaintEscalationHistory(id);
   }
 
   @Post('complaints/:id/comments')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async addComplaintComment(
     @Param('id') id: string,
     @Body() body: { comment: string; staffId?: string },
@@ -329,50 +371,58 @@ export class AdminController {
 
   // Contacts APIs (Emergency & Vendor)
   @Get('contacts')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllContacts(@Query('type') type?: string) {
     return this.adminService.getAllContacts(type);
   }
 
   @Get('contacts/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getContactById(@Param('id') id: string) {
     return this.adminService.getContactById(id);
   }
 
   @Post('contacts')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async createContact(@Body() contactData: any) {
     return this.adminService.createContact(contactData);
   }
 
   @Put('contacts/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateContact(@Param('id') id: string, @Body() contactData: any) {
     return this.adminService.updateContact(id, contactData);
   }
 
   @Put('contacts/:id/toggle-active')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async toggleContactActive(@Param('id') id: string) {
     return this.adminService.toggleContactActive(id);
   }
 
   @Delete('contacts/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteContact(@Param('id') id: string) {
     return this.adminService.deleteContact(id);
   }
 
   // Billing APIs
   @Get('billing/stats')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getMaintenanceOverallStats() {
     return this.adminService.getMaintenanceOverallStats();
   }
 
   @Get('billing/summary')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getBillingSummary(
     @Query('month') month: string,
     @Query('year') year: string,
@@ -381,7 +431,8 @@ export class AdminController {
   }
 
   @Get('billing/entries')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getBillingEntries(
     @Query('status') status?: 'Paid' | 'Unpaid' | 'Overdue',
     @Query('search') search?: string,
@@ -390,7 +441,8 @@ export class AdminController {
   }
 
   @Put('billing/:id/mark-paid')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async markAsPaid(
     @Param('id') id: string,
     @Body() body: { paymentMethod: string; transactionId?: string },
@@ -403,69 +455,80 @@ export class AdminController {
   }
 
   @Post('billing/mark-overdue')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async markBulkOverdue() {
     return this.adminService.markBulkOverdue();
   }
 
   @Post('billing/send-reminders')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async sendReminders(@Body() body: { ids: string[] }) {
     return this.adminService.sendReminders(body.ids);
   }
 
   @Post('billing/generate')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async generateBill(@Body() body: any) {
     return this.adminService.generateBill(body);
   }
 
   // Access Control APIs
   @Get('access-control/pending')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getPendingRequests() {
     return this.adminService.getPendingRequests();
   }
 
   @Post('access-control/:id/approve')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async approveRequest(@Param('id') id: string) {
     return this.adminService.approveRequest(id);
   }
 
   @Post('access-control/:id/reject')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async rejectRequest(@Param('id') id: string) {
     return this.adminService.rejectRequest(id);
   }
 
   @Get('access-control/approved-today')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getApprovedToday() {
     return this.adminService.getApprovedToday();
   }
 
   @Get('access-control/rejected-today')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getRejectedToday() {
     return this.adminService.getRejectedToday();
   }
 
   // Notice APIs
   @Get('notices')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllNotices() {
     return this.adminService.getAllNotices();
   }
 
   @Get('notices/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getNoticeById(@Param('id') id: string) {
     return this.adminService.getNoticeById(id);
   }
 
   @Post('notices')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @UseInterceptors(FilesInterceptor('attachments', 10))
   @ApiOperation({
     summary: 'Create notice with attachments',
@@ -497,20 +560,22 @@ export class AdminController {
   }
 
   @Put('notices/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateNotice(@Param('id') id: string, @Body() body: any) {
     return this.adminService.updateNotice(id, body);
   }
 
   @Delete('notices/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteNotice(@Param('id') id: string) {
     return this.adminService.deleteNotice(id);
   }
 
   // Staff APIs
   @Get('staff')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllStaff(
     @Query('type') type?: StaffType,
     @Query('search') search?: string,
@@ -521,25 +586,25 @@ export class AdminController {
 
   // Specific routes MUST come before /:id to avoid NestJS matching them as the id param
   @Get('staff/available')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAvailableStaff() {
     return this.adminService.getAvailableStaff();
   }
 
   @Get('staff/type/:type')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getStaffByType(@Param('type') type: StaffType) {
     return this.adminService.getStaffByType(type);
   }
 
   @Get('staff/stats/summary')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getStaffSummary() {
     return this.adminService.getStaffSummary();
   }
 
   @Get('staff/:id/activity')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getStaffActivityAdmin(
     @Param('id') id: string,
     @Query('month') month?: string,
@@ -553,37 +618,37 @@ export class AdminController {
   }
 
   @Post('staff/:id/check-in')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async adminCheckIn(@Param('id') id: string) {
     return this.adminService.adminCheckIn(id);
   }
 
   @Post('staff/:id/check-out')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async adminCheckOut(@Param('id') id: string) {
     return this.adminService.adminCheckOut(id);
   }
 
   @Patch('staff/:id/toggle-active')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async toggleStaffActive(@Param('id') id: string) {
     return this.adminService.toggleStaffActive(id);
   }
 
   @Get('staff/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getStaffById(@Param('id') id: string) {
     return this.adminService.getStaffById(id);
   }
 
   @Post('staff')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async createStaff(@Body() createStaffDto: CreateStaffAdminDto) {
     return this.adminService.createStaff(createStaffDto);
   }
 
   @Put('staff/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateStaff(
     @Param('id') id: string,
     @Body() updateStaffDto: UpdateStaffAdminDto,
@@ -592,14 +657,15 @@ export class AdminController {
   }
 
   @Delete('staff/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteStaff(@Param('id') id: string) {
     return this.adminService.deleteStaff(id);
   }
 
   // Residents APIs
   @Get('residents/pending')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiOperation({
     summary: 'Get pending resident approvals',
     description:
@@ -629,7 +695,8 @@ export class AdminController {
   }
 
   @Get('residents')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllResidents(
     @Query('building') building?: string,
     @Query('residentType') residentType?: string,
@@ -645,7 +712,7 @@ export class AdminController {
   }
 
   @Get('residents/lookup')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async lookupResidentByFlat(
     @Query('building') building: string,
     @Query('flat') flat: string,
@@ -653,47 +720,9 @@ export class AdminController {
     return this.adminService.lookupResidentByFlat(building, flat);
   }
 
-  @Get('residents/:id')
-  @UseGuards(JwtAuthGuard)
-  async getResidentById(@Param('id') id: string) {
-    return this.adminService.getResidentById(id);
-  }
-
-  @Get('residents/:id/verify-id')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({
-    summary: 'Verify Resident ID (For Guards)',
-    description: 'Returns essential profile verification details based on userId payload from QR.',
-  })
-  @ApiParam({ name: 'id', description: 'User ID to verify' })
-  @ApiResponse({ status: 200, description: 'Resident verification details retrieved successfully' })
-  async verifyResidentId(@Param('id') id: string) {
-    return this.adminService.verifyResidentId(id);
-  }
-
-  @Post('residents')
-  @UseGuards(JwtAuthGuard)
-  async createResident(@Body() createResidentDto: CreateResidentDto) {
-    return this.adminService.createResident(createResidentDto);
-  }
-
-  @Put('residents/:id')
-  @UseGuards(JwtAuthGuard)
-  async updateResident(
-    @Param('id') id: string,
-    @Body() updateResidentDto: UpdateResidentDto,
-  ) {
-    return this.adminService.updateResident(id, updateResidentDto);
-  }
-
-  @Delete('residents/:id')
-  @UseGuards(JwtAuthGuard)
-  async deleteResident(@Param('id') id: string) {
-    return this.adminService.deleteResident(id);
-  }
-
   @Get('residents/with-sub-users')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiOperation({ summary: 'Get residents with their family members and tenants' })
   @ApiResponse({ status: 200, description: 'Residents with sub-users retrieved successfully' })
   async getResidentsWithSubUsers(
@@ -705,13 +734,60 @@ export class AdminController {
   }
 
     @Get('residents/stats/summary')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getResidentsSummary() {
     return this.adminService.getResidentsSummary();
   }
 
+  @Get('residents/:id')
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async getResidentById(@Param('id') id: string) {
+    return this.adminService.getResidentById(id);
+  }
+
+  @Get('residents/:id/verify-id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({
+    summary: 'Verify Resident ID (For Guards)',
+    description: 'Returns essential profile verification details based on userId payload from QR.',
+  })
+  @ApiParam({ name: 'id', description: 'User ID to verify' })
+  @ApiResponse({ status: 200, description: 'Resident verification details retrieved successfully' })
+  async verifyResidentId(@Param('id') id: string) {
+    return this.adminService.verifyResidentId(id);
+  }
+
+  @Post('residents')
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async createResident(@Body() createResidentDto: CreateResidentDto) {
+    return this.adminService.createResident(createResidentDto);
+  }
+
+  @Put('residents/:id')
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async updateResident(
+    @Param('id') id: string,
+    @Body() updateResidentDto: UpdateResidentDto,
+  ) {
+    return this.adminService.updateResident(id, updateResidentDto);
+  }
+
+  @Delete('residents/:id')
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async deleteResident(@Param('id') id: string) {
+    return this.adminService.deleteResident(id);
+  }
+
+
+
   @Post('residents/:id/approve')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiOperation({
     summary: 'Approve resident registration',
     description:
@@ -735,7 +811,8 @@ export class AdminController {
   }
 
   @Post('residents/:id/reject')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiOperation({
     summary: 'Reject resident registration',
     description:
@@ -772,26 +849,29 @@ export class AdminController {
 
   // Vehicles APIs
   @Get('vehicles')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllVehicles() {
     return this.adminService.getAllVehicles();
   }
 
   // Parking Management APIs
   @Get('parking/by-building')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getParkingByBuilding() {
     return this.adminService.getParkingByBuilding();
   }
 
   @Get('parking/buildings/:buildingId/slots')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getParkingSlotsByBuilding(@Param('buildingId') buildingId: string) {
     return this.adminService.getParkingSlotsByBuilding(buildingId);
   }
 
   @Post('parking/slots/bulk')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async bulkCreateParkingSlots(
     @Body()
     body: {
@@ -814,31 +894,36 @@ export class AdminController {
   }
 
   @Delete('parking/slots/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteParkingSlot(@Param('id') slotId: string) {
     return this.adminService.deleteParkingSlot(slotId);
   }
 
   @Post('parking/slots/:id/release')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async releaseParkingSlot(@Param('id') slotId: string) {
     return this.adminService.releaseParkingSlot(slotId);
   }
 
   @Get('parking/slots')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllParkingSlots() {
     return this.adminService.getAllParkingSlots();
   }
 
   @Get('parking/applications')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllParkingApplications() {
     return this.adminService.getAllParkingApplications();
   }
 
   @Post('parking/slots/:id/assign')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async assignParkingSlot(
     @Param('id') slotId: string,
     @Body()
@@ -853,7 +938,8 @@ export class AdminController {
   }
 
   @Post('parking/applications/:id/approve')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async approveParkingApplication(
     @Param('id') applicationId: string,
     @Body() body: { slotId?: string },
@@ -865,20 +951,22 @@ export class AdminController {
   }
 
   @Post('parking/applications/:id/reject')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async rejectParkingApplication(@Param('id') applicationId: string) {
     return this.adminService.rejectParkingApplication(applicationId);
   }
 
   // Maintenance Payment APIs
   @Get('maintenance/all')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllMaintenance(@Query('status') status?: string) {
     return this.adminService.getAllMaintenance(status);
   }
 
   @Post('maintenance/:id/mark-paid')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async markMaintenancePaid(
     @Param('id') id: string,
     @Body() body: { paymentMethod: string; transactionId: string },
@@ -893,37 +981,43 @@ export class AdminController {
   // Amenities Booking APIs
   // Amenity Configuration CRUD
   @Get('amenities/configs')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllAmenityConfigs() {
     return this.adminService.getAllAmenityConfigs();
   }
 
   @Post('amenities/configs')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async createAmenityConfig(@Body() body: any) {
     return this.adminService.createAmenityConfig(body);
   }
 
   @Put('amenities/configs/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateAmenityConfig(@Param('id') id: string, @Body() body: any) {
     return this.adminService.updateAmenityConfig(id, body);
   }
 
   @Delete('amenities/configs/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteAmenityConfig(@Param('id') id: string) {
     return this.adminService.deleteAmenityConfig(id);
   }
 
   @Get('amenities/stats')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAmenityStats() {
     return this.adminService.getAmenityStats();
   }
 
   @Get('amenities/bookings')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllAmenityBookings(
     @Query('status') status?: string,
     @Query('amenityType') amenityType?: string,
@@ -933,25 +1027,29 @@ export class AdminController {
   }
 
   @Get('amenities/bookings/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAmenityBookingById(@Param('id') id: string) {
     return this.adminService.getAmenityBookingById(id);
   }
 
   @Post('amenities/bookings/:id/approve')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async approveAmenityBooking(@Param('id') id: string) {
     return this.adminService.approveAmenityBooking(id);
   }
 
   @Post('amenities/bookings/:id/complete')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async completeAmenityBooking(@Param('id') id: string) {
     return this.adminService.completeAmenityBooking(id);
   }
 
   @Post('amenities/bookings/:id/mark-paid')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async markAmenityPaymentPaid(
     @Param('id') id: string,
     @Body() body: { paymentMethod: string; transactionId?: string },
@@ -964,47 +1062,49 @@ export class AdminController {
   }
 
   @Post('amenities/bookings/:id/cancel')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async cancelAmenityBooking(@Param('id') id: string) {
     return this.adminService.cancelAmenityBooking(id);
   }
 
   // Parcels APIs
   @Get('parcels/stats')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getParcelsStats() {
     return this.adminService.getParcelsStats();
   }
 
   @Get('parcels')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllParcels(
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('buildingId') buildingId?: string,
   ) {
-    return this.adminService.getAllParcels(status, search);
+    return this.adminService.getAllParcels(status, search, buildingId);
   }
 
   @Post('parcels')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async adminCreateParcel(@Body() body: any) {
     return this.adminService.adminCreateParcel(body);
   }
 
   @Get('parcels/pending')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getPendingParcels() {
     return this.adminService.getPendingParcels();
   }
 
   @Get('parcels/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getParcelById(@Param('id') id: string) {
     return this.adminService.getParcelById(id);
   }
 
   @Put('parcels/:id/status')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateParcelStatus(
     @Param('id') id: string,
     @Body() body: { status: string; collectedBy?: string; notes?: string },
@@ -1018,21 +1118,22 @@ export class AdminController {
   }
 
   @Put('parcels/:id/collect')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async collectParcel(
     @Param('id') id: string,
-    @Body() body: { collectedBy: string; notes?: string },
+    @Body() body: { collectedBy: string; notes?: string; collectedByPhone?: string; collectedByIdLast4?: string },
   ) {
     return this.adminService.updateParcelStatus(
       id,
       'Collected',
       body.collectedBy,
       body.notes,
+      { collectedByPhone: body.collectedByPhone, collectedByIdLast4: body.collectedByIdLast4 },
     );
   }
 
   @Put('parcels/:id/return')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async returnParcel(
     @Param('id') id: string,
     @Body() body: { notes?: string },
@@ -1042,13 +1143,15 @@ export class AdminController {
 
   // Documents APIs
   @Get('documents/stats')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getDocumentStats() {
     return this.adminService.getDocumentStats();
   }
 
   @Get('documents')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllDocuments(
     @Query('search') search?: string,
     @Query('filter') filter?: 'all' | 'verified' | 'pending',
@@ -1057,171 +1160,271 @@ export class AdminController {
   }
 
   @Put('documents/:id/verify')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async verifyDocument(@Param('id') id: string) {
     return this.adminService.verifyDocument(id);
   }
 
   @Delete('documents/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteAdminDocument(@Param('id') id: string) {
     return this.adminService.deleteAdminDocument(id);
   }
 
   // Emergency Contacts APIs
   @Get('emergency/contacts')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllEmergencyContacts() {
     return this.adminService.getAllEmergencyContacts();
   }
 
   @Post('emergency/contacts')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async createEmergencyContact(@Body() body: any) {
     return this.adminService.createEmergencyContact(body);
   }
 
   @Put('emergency/contacts/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateEmergencyContact(@Param('id') id: string, @Body() body: any) {
     return this.adminService.updateEmergencyContact(id, body);
   }
 
   @Delete('emergency/contacts/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteEmergencyContact(@Param('id') id: string) {
     return this.adminService.deleteEmergencyContact(id);
   }
 
   // Visitors APIs — specific routes BEFORE /:id
   @Get('visitors/stats')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getVisitorStats() {
     return this.adminService.getVisitorStats();
   }
 
   @Get('visitors/today')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getTodayVisitors() {
     return this.adminService.getTodayVisitors();
   }
 
   @Get('visitors/pre-approved')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getPreApprovedVisitors() {
     return this.adminService.getPreApprovedVisitors();
   }
 
+  @Get('visitors/catalogue')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Commercial visit-type catalogue with per-type rules' })
+  async getVisitCatalogue() {
+    return VisitRulesService.ALL_COMMERCIAL_TYPES;
+  }
+
+  @Get('visitors/occupancy')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'People inside vs capacity per building' })
+  async getOccupancy() {
+    return this.adminService.getOccupancy();
+  }
+
+  @Get('visitors/inside')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Everyone currently inside, grouped by building (roll-call)' })
+  async getInsideNow(@Query('buildingId') buildingId?: string) {
+    return this.adminService.getInsideNow(buildingId);
+  }
+
+  @Get('visitors/export.csv')
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Visitor log as CSV (from/to = YYYY-MM-DD)' })
+  async exportVisitors(
+    @Res() res: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('buildingId') buildingId?: string,
+    @Query('status') status?: string,
+  ) {
+    const csv = await this.adminService.exportVisitorsCsv({ from, to, buildingId, status });
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="visitors-${from || 'all'}-${to || 'all'}.csv"`,
+    );
+    res.send(csv);
+  }
+
+  @Get('visitors/pending')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({
+    summary: 'Visits awaiting approval (use approvalMode=guard for the gate queue)',
+  })
+  async getPendingVisitors(
+    @Query('approvalMode') approvalMode?: string,
+    @Query('buildingId') buildingId?: string,
+  ) {
+    return this.adminService.getPendingVisitors({ approvalMode, buildingId });
+  }
+
   @Post('visitors/verify-qr')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async verifyVisitorQR(@Body() body: { qrData: string }) {
     return this.adminService.verifyVisitorQR(body.qrData);
   }
 
+  @Get('visitors/lookup/:passCode')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Find a pass by its typed code (camera fallback)' })
+  async lookupVisitorByPassCode(@Param('passCode') passCode: string) {
+    return this.adminService.lookupVisitorByPassCode(passCode);
+  }
+
+  @Post('visitors/checkin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({
+    summary: 'Guard desk check-in: create + approve + record entry in one step',
+  })
+  async guardCheckin(@Request() req, @Body() dto: GuardCheckinDto) {
+    return this.adminService.guardCheckin(dto as any, req.user);
+  }
+
   @Get('visitors')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllVisitors(
     @Query('status') status?: string,
     @Query('type') type?: string,
     @Query('search') search?: string,
     @Query('preApproved') preApproved?: string,
+    @Query('buildingId') buildingId?: string,
+    @Query('siteType') siteType?: string,
+    @Query('approvalMode') approvalMode?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     return this.adminService.getAllVisitors(
       status,
       type,
-      preApproved === 'true',
+      preApproved === undefined ? undefined : preApproved === 'true',
       search,
+      { buildingId, siteType, approvalMode },
+      {
+        page: page ? Math.max(1, parseInt(page, 10) || 1) : undefined,
+        limit: limit ? Math.min(500, Math.max(1, parseInt(limit, 10) || 50)) : undefined,
+      },
     );
   }
 
   @Get('visitors/:id/status')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getVisitorStatus(@Param('id') id: string) {
     return this.adminService.getVisitorStatus(id);
   }
 
   @Post('visitors/:id/approve')
-  @UseGuards(JwtAuthGuard)
-  async approveVisitor(@Param('id') id: string) {
-    return this.adminService.approveVisitor(id);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async approveVisitor(@Request() req, @Param('id') id: string) {
+    return this.adminService.approveVisitor(id, req.user);
   }
 
   @Post('visitors/:id/reject')
-  @UseGuards(JwtAuthGuard)
-  async rejectVisitor(@Param('id') id: string) {
-    return this.adminService.rejectVisitor(id);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async rejectVisitor(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body?: { reason?: string },
+  ) {
+    return this.adminService.rejectVisitor(id, req.user, body?.reason);
   }
 
   @Post('visitors/:id/entry')
-  @UseGuards(JwtAuthGuard)
-  async recordVisitorEntry(@Param('id') id: string) {
-    return this.adminService.recordVisitorEntry(id);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async recordVisitorEntry(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body?: { gate?: string },
+  ) {
+    return this.adminService.recordVisitorEntry(id, req.user, body?.gate);
   }
 
   @Post('visitors/:id/exit')
-  @UseGuards(JwtAuthGuard)
-  async recordVisitorExit(@Param('id') id: string) {
-    return this.adminService.recordVisitorExit(id);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async recordVisitorExit(
+    @Param('id') id: string,
+    @Body() body?: { gate?: string },
+  ) {
+    return this.adminService.recordVisitorExit(id, body?.gate);
   }
 
   @Delete('visitors/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteVisitor(@Param('id') id: string) {
     return this.adminService.deleteVisitor(id);
   }
 
   @Post('visitors')
-  @UseGuards(JwtAuthGuard)
-  async createVisitor(@Body() createDto: CreateVisitorDto) {
-    return this.adminService.createVisitor(createDto);
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async createVisitor(@Request() req, @Body() createDto: GuardCheckinDto) {
+    return this.adminService.createVisitor(createDto as any, req.user);
   }
 
   // Pets Management
   @Get('pets')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllPets() {
     return this.adminService.getAllPets();
   }
 
   @Get('pets/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getPetById(@Param('id') id: string) {
     return this.adminService.getPetById(id);
   }
 
   @Post('pets')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async createPet(@Body() body: any) {
     return this.adminService.createPet(body);
   }
 
   @Put('pets/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updatePet(@Param('id') id: string, @Body() body: any) {
     return this.adminService.updatePet(id, body);
   }
 
   @Delete('pets/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deletePet(@Param('id') id: string) {
     return this.adminService.deletePet(id);
   }
 
   // Event Management APIs
   @Get('events')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getAllEvents(@Query('status') status?: string) {
     return this.adminService.getAllEvents(status);
   }
 
   @Get('events/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async getEventById(@Param('id') id: string) {
     return this.adminService.getEventById(id);
   }
 
   @Post('events')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async createEvent(@Body() body: any, @Request() req) {
     // Admin JWT doesn't have a userId, so we'll pass undefined
     // The service will find the first user as a fallback
@@ -1229,13 +1432,15 @@ export class AdminController {
   }
 
   @Put('events/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateEvent(@Param('id') id: string, @Body() body: any) {
     return this.adminService.updateEvent(id, body);
   }
 
   @Patch('events/:id/status')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async updateEventStatus(
     @Param('id') id: string,
     @Body('status') status: string,
@@ -1244,14 +1449,16 @@ export class AdminController {
   }
 
   @Delete('events/:id')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async deleteEvent(@Param('id') id: string) {
     return this.adminService.deleteEvent(id);
   }
 
   // Notification Management APIs
   @Post('notifications/send-to-user')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async sendNotificationToUser(
     @Body()
     body: {
@@ -1270,7 +1477,8 @@ export class AdminController {
   }
 
   @Post('notifications/send-to-guard')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async sendNotificationToGuard(
     @Body()
     body: {
@@ -1289,7 +1497,8 @@ export class AdminController {
   }
 
   @Post('notifications/send-to-multiple')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async sendNotificationToMultiple(
     @Body()
     body: {
@@ -1308,7 +1517,8 @@ export class AdminController {
   }
 
   @Post('notifications/send-to-all-users')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async sendNotificationToAllUsers(
     @Body()
     body: {
@@ -1325,7 +1535,8 @@ export class AdminController {
   }
 
   @Post('notifications/send-to-all-guards')
-  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
   async sendNotificationToAllGuards(
     @Body()
     body: {

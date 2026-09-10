@@ -316,19 +316,38 @@ export class NotificationsService {
     }
   }
 
+  /**
+   * Broadcast to the guards of one builder (never platform-wide once an
+   * organization is known). Guards bound to specific sites only get alerts
+   * for those sites.
+   */
   async sendNotificationToAllGuards(
     title: string,
     body: string,
     data?: Record<string, string>,
+    organizationId?: any,
+    buildingId?: any,
   ) {
     if (!this.checkFirebaseInitialized()) {
       return { success: false, message: 'Firebase Admin not initialized' };
     }
 
     try {
-      const guards = await this.guardModel
-        .find({ fcmToken: { $exists: true, $ne: null }, isActive: true })
-        .exec();
+      const filter: any = { fcmToken: { $exists: true, $ne: null }, isActive: true };
+      if (organizationId) {
+        filter.organizationId = organizationId;
+        if (buildingId) {
+          filter.$or = [{ buildingIds: { $size: 0 } }, { buildingIds: buildingId }];
+        }
+      } else if (buildingId) {
+        // Legacy building with no builder: only guards explicitly bound to it,
+        // or legacy guards with no builder either — never the whole platform.
+        filter.$or = [
+          { buildingIds: buildingId },
+          { organizationId: { $in: [null, undefined] }, buildingIds: { $size: 0 } },
+        ];
+      }
+      const guards = await this.guardModel.find(filter).exec();
 
       if (guards.length === 0) {
         return {
@@ -341,6 +360,7 @@ export class NotificationsService {
       const notificationRecord = new this.notificationModel({
         recipientType: 'Guard',
         // recipientId is empty for broadcast
+        organizationId: organizationId || undefined,
         title,
         body,
         type: data?.type || 'general',

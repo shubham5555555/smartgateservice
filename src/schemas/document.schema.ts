@@ -16,6 +16,10 @@ export enum DocumentType {
 
 @Schema({ timestamps: true })
 export class DocumentFile {
+  /** Tenant (builder / property company) this record belongs to. */
+  @Prop({ type: Types.ObjectId, ref: 'Organization', index: true })
+  organizationId?: Types.ObjectId;
+
   @Prop({ required: true, type: Types.ObjectId, ref: 'User' })
   userId: Types.ObjectId;
 

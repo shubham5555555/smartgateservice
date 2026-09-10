@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { BuildingsController } from './buildings.controller';
 import { BuildingsService } from './buildings.service';
 import { Building, BuildingSchema } from '../schemas/building.schema';
+import { Visitor, VisitorSchema } from '../schemas/visitor.schema';
 import { User, UserSchema } from '../schemas/user.schema';
 import { CommonModule } from '../common/common.module';
 import { ImageProcessor } from '../queues/image.processor';
@@ -10,6 +11,7 @@ import { ImageProcessor } from '../queues/image.processor';
 @Module({
   imports: [
     MongooseModule.forFeature([
+      { name: Visitor.name, schema: VisitorSchema },
       { name: Building.name, schema: BuildingSchema },
       { name: User.name, schema: UserSchema },
     ]),

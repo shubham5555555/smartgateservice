@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+    BadGatewayException,
+    Injectable,
+    Logger,
+    ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { v4 as uuidv4 } from 'uuid';
@@ -31,7 +36,25 @@ export class S3Service {
         }
     }
 
+    get isConfigured(): boolean {
+        return !!this.s3Client && !!this.bucketName;
+    }
+
+    /** True when `url` points into this deployment's bucket (an upload we produced). */
+    isOwnUrl(url?: string | null): boolean {
+        if (!url || !this.bucketName) return false;
+        const prefix = `https://${this.bucketName}.s3.${this.region}.amazonaws.com/`;
+        const alt = `https://${this.bucketName}.s3.amazonaws.com/`;
+        return url.startsWith(prefix) || url.startsWith(alt);
+    }
+
     async uploadFile(file: Express.Multer.File, folder: string = 'smartgate', transformation?: Record<string, unknown>): Promise<string> {
+        if (!this.isConfigured) {
+            // A clear 503 instead of a TypeError-turned-500 when AWS is not set up.
+            throw new ServiceUnavailableException(
+                'File storage is not configured on this server. Ask the administrator to set the AWS S3 credentials.',
+            );
+        }
         const fileExtension = file.originalname.split('.').pop();
         const key = `${folder}/${uuidv4()}.${fileExtension}`;
 
@@ -50,7 +73,7 @@ export class S3Service {
             return url;
         } catch (error: any) {
             this.logger.error('S3 upload error:', error);
-            throw new Error(`Failed to upload file to S3: ${error.message}`);
+            throw new BadGatewayException(`Failed to upload file to storage: ${error.message}`);
         }
     }
 

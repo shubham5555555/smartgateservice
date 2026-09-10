@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Types } from 'mongoose';
 
 export type ContactDocument = Contact & Document;
 
@@ -31,6 +31,10 @@ export enum ContactCategory {
 
 @Schema({ timestamps: true })
 export class Contact {
+  /** Tenant (builder / property company) this record belongs to. */
+  @Prop({ type: Types.ObjectId, ref: 'Organization', index: true })
+  organizationId?: Types.ObjectId;
+
   @Prop({ required: true, enum: ContactType })
   type: ContactType;
 

@@ -1,4 +1,5 @@
 import {
+  IsMongoId,
   IsEmail,
   IsNotEmpty,
   IsOptional,
@@ -40,9 +41,15 @@ export class CreateResidentDto {
   @IsString()
   flatNo: string;
 
-  @IsEnum(BuildingType, { message: 'Invalid building type' })
-  @IsNotEmpty({ message: 'Building/Block is required' })
-  building: BuildingType;
+  /** Building name as shown in the dashboard (any building of the builder). */
+  @IsNotEmpty({ message: 'Building is required' })
+  @IsString()
+  building: string;
+
+  /** Preferred: the building's id. Resolved from the name when omitted. */
+  @IsOptional()
+  @IsMongoId()
+  buildingId?: string;
 
   @IsEnum(ResidentType, { message: 'Invalid resident type' })
   @IsNotEmpty({ message: 'Resident type is required' })

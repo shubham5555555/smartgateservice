@@ -44,6 +44,8 @@ import { Building, BuildingSchema } from '../schemas/building.schema';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { forwardRef } from '@nestjs/common';
 import { CommonModule } from '../common/common.module';
+import { VisitsModule } from '../visits/visits.module';
+import { OrganizationsModule } from '../organizations/organizations.module';
 
 @Module({
   imports: [
@@ -73,6 +75,8 @@ import { CommonModule } from '../common/common.module';
     ]),
     forwardRef(() => NotificationsModule),
     CommonModule,
+    VisitsModule,
+    OrganizationsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({

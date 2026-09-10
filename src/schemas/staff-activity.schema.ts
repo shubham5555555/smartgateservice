@@ -10,6 +10,10 @@ export enum ActivityStatus {
 
 @Schema({ timestamps: true })
 export class StaffActivity {
+  /** Tenant (builder / property company) this record belongs to. */
+  @Prop({ type: Types.ObjectId, ref: 'Organization', index: true })
+  organizationId?: Types.ObjectId;
+
   @Prop({ required: true, type: Types.ObjectId, ref: 'Staff' })
   staffId: Types.ObjectId;
 

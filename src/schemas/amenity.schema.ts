@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Types } from 'mongoose';
 
 export type AmenityDocument = Amenity & Document;
 
@@ -30,6 +30,10 @@ export type AmenityIcon = (typeof AMENITY_ICON_OPTIONS)[number];
 
 @Schema({ timestamps: true })
 export class Amenity {
+  /** Tenant (builder / property company) this record belongs to. */
+  @Prop({ type: Types.ObjectId, ref: 'Organization', index: true })
+  organizationId?: Types.ObjectId;
+
   @Prop({ required: true })
   name: string;
 

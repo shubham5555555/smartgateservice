@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { S3Service } from '../common/s3.service';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import {
   ApiTags,
   ApiOperation,
@@ -23,6 +24,8 @@ import { VisitorsService } from './visitors.service';
 import { CreateVisitorDto } from './dto/create-visitor.dto';
 import { SelfRegisterVisitorDto } from './dto/self-register-visitor.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../tenancy/roles.guard';
+import { Roles } from '../tenancy/roles.decorator';
 
 @ApiTags('Visitors')
 @Controller('visitors')
@@ -34,6 +37,8 @@ export class VisitorsController {
 
   // Public endpoints for visitor self-registration
   @Post('self-register')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 600_000 } })
   @ApiOperation({ summary: 'Self-register as a visitor (Public)' })
   @ApiResponse({
     status: 201,
@@ -48,7 +53,12 @@ export class VisitorsController {
   }
 
   @Get('status/:phoneNumber')
-  @ApiOperation({ summary: 'Check visitor status by phone number (Public)' })
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Check visitor status by phone number (Public, legacy — prefer /public/visits/:passToken)',
+  })
   @ApiParam({ name: 'phoneNumber', description: 'Visitor phone number' })
   @ApiResponse({
     status: 200,
@@ -123,25 +133,28 @@ export class VisitorsController {
   }
 
   @Post(':id/approve')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'guard')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Approve visitor (Admin/Guard)' })
   @ApiResponse({ status: 200, description: 'Visitor approved successfully' })
-  async approveVisitor(@Param('id') id: string) {
-    return this.visitorsService.approveVisitor(id);
+  async approveVisitor(@Request() req, @Param('id') id: string) {
+    return this.visitorsService.approveVisitor(id, req.user);
   }
 
   @Post(':id/entry')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'guard')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Record visitor entry (Guard)' })
   @ApiResponse({ status: 200, description: 'Entry recorded successfully' })
-  async recordEntry(@Param('id') id: string) {
-    return this.visitorsService.recordEntry(id);
+  async recordEntry(@Request() req, @Param('id') id: string) {
+    return this.visitorsService.recordEntry(id, req.user);
   }
 
   @Post(':id/exit')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin', 'guard')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Record visitor exit (Guard)' })
   @ApiResponse({ status: 200, description: 'Exit recorded successfully' })

@@ -94,7 +94,12 @@ export class AuthService {
     await user.save();
 
     // Generate JWT token
-    const payload = { sub: user._id, phoneNumber: user.phoneNumber };
+    const payload = {
+      sub: user._id,
+      phoneNumber: user.phoneNumber,
+      role: 'resident',
+      organizationId: user.organizationId ? String(user.organizationId) : undefined,
+    };
     const accessToken = this.jwtService.sign(payload);
 
     return {
@@ -424,7 +429,12 @@ export class AuthService {
     }
 
     // Generate JWT token
-    const payload = { sub: user._id, email: user.email };
+    const payload = {
+      sub: user._id,
+      email: user.email,
+      role: 'resident',
+      organizationId: user.organizationId ? String(user.organizationId) : undefined,
+    };
     const accessToken = this.jwtService.sign(payload);
 
     return {

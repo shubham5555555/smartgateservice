@@ -24,8 +24,11 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { BuildingsService } from './buildings.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../tenancy/roles.guard';
+import { Roles } from '../tenancy/roles.decorator';
 import { CacheService } from '../common/cache.service';
 import { CreateBuildingDto } from './dto/create-building.dto';
+import { UpdateSiteSettingsDto } from './dto/update-site-settings.dto';
 
 @ApiTags('Buildings')
 @Controller('buildings')
@@ -47,8 +50,22 @@ export class BuildingsController {
     if (page) options.page = parseInt(page, 10);
     if (limit) options.limit = parseInt(limit, 10);
     const data = await this.buildingsService.getAllBuildings(options);
-    await this.cacheService.set(cacheKey, data, 60); // cache for 60s
-    return data;
+    // The gate token is printed material, not something to hand out in a list.
+    const sanitized = Array.isArray(data)
+      ? data.map((b: any) => {
+          const plain = typeof b?.toObject === 'function' ? b.toObject() : { ...b };
+          delete plain.gateQrToken;
+          return plain;
+        })
+      : data;
+    await this.cacheService.set(cacheKey, sanitized, 60); // cache for 60s
+    return sanitized;
+  }
+
+  @Get('property-types')
+  @ApiOperation({ summary: 'Catalogue of residential / commercial property types' })
+  getPropertyTypes() {
+    return this.buildingsService.getPropertyTypes();
   }
 
   @Get()
@@ -126,6 +143,38 @@ export class BuildingsController {
     const data = await this.buildingsService.getBuildingById(id);
     await this.cacheService.set(cacheKey, data, 60);
     return data;
+  }
+
+  @Put(':id/settings')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Set the site mode (residential/commercial) and its flags',
+  })
+  async updateSiteSettings(
+    @Param('id') id: string,
+    @Body() dto: UpdateSiteSettingsDto,
+  ) {
+    return this.buildingsService.updateSiteSettings(id, dto as any);
+  }
+
+  @Get(':id/gate-qr')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Get the gate QR token for the printable poster' })
+  async getGateQr(@Param('id') id: string) {
+    return this.buildingsService.getGateQr(id);
+  }
+
+  @Post(':id/gate-qr/rotate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Invalidate the printed gate QR and issue a new one' })
+  async rotateGateQr(@Param('id') id: string) {
+    return this.buildingsService.rotateGateQrToken(id);
   }
 
   @Get(':id')

@@ -1,11 +1,19 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Types } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 
 export type GuardDocument = Guard & Document;
 
 @Schema({ timestamps: true })
 export class Guard {
+  /** Tenant (builder) this guard works for. */
+  @Prop({ type: Types.ObjectId, ref: 'Organization', index: true })
+  organizationId?: Types.ObjectId;
+
+  /** Sites the guard covers; empty = every building of the organization. */
+  @Prop({ type: [Types.ObjectId], ref: 'Building', default: [] })
+  buildingIds: Types.ObjectId[];
+
   @Prop({ required: true, unique: true })
   guardId: string;
 

@@ -2,17 +2,41 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
+import { TenantContext } from '../tenancy/tenant-context';
+import {
+  ActorKind,
+  ApprovalMode,
+  Visitor,
+  VisitorDocument,
+  VisitorStatus,
+} from '../schemas/visitor.schema';
+import {
+  PROPERTY_TYPES,
+  UnitModel,
+  propertyTypeFromLegacyLabel,
+  propertyTypeInfo,
+  standaloneUnitNumber,
+} from '../schemas/property-types';
 import { ClientSession } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import {
   Building,
   BuildingDocument,
   FlatStatus,
   Floor,
   Flat,
+  generateGateQrToken,
 } from '../schemas/building.schema';
+import {
+  SiteSettings,
+  SiteType,
+  inferSiteType,
+  resolveSiteSettings,
+  toPlainSettings,
+} from '../schemas/site-settings';
 import { User } from '../schemas/user.schema';
 import { S3Service } from '../common/s3.service';
 import { QueueService } from '../queues/queue.service';
@@ -21,10 +45,72 @@ import { QueueService } from '../queues/queue.service';
 export class BuildingsService {
   constructor(
     @InjectModel(Building.name) private buildingModel: Model<BuildingDocument>,
+    @InjectModel(Visitor.name) private visitorModel: Model<VisitorDocument>,
     @InjectModel(User.name) private userModel: Model<User>,
     private s3Service: S3Service,
     private queueService: QueueService,
   ) { }
+
+  /** The catalogue the create-building UI renders. */
+  getPropertyTypes() {
+    return PROPERTY_TYPES;
+  }
+
+  /** Organization a new building must belong to. */
+  private resolveOrganizationForCreate(requested?: string) {
+    const scope = TenantContext.current();
+    if (TenantContext.isPlatform(scope)) {
+      const raw = requested || (scope.organizationId ? String(scope.organizationId) : undefined);
+      if (!raw) {
+        throw new BadRequestException(
+          'organizationId is required: pick the builder this building belongs to',
+        );
+      }
+      return new Types.ObjectId(raw);
+    }
+    if (requested && scope.organizationId && String(requested) !== String(scope.organizationId)) {
+      throw new ForbiddenException('You can only create buildings in your own organization');
+    }
+    return TenantContext.requireOrganizationId(scope);
+  }
+
+  /** Generate the unit layout for a property type. */
+  buildFloors(propertyType: string, totalFloors: number, flatsPerFloor: number) {
+    const info = propertyTypeInfo(propertyType);
+    const floors: Floor[] = [];
+    if (info.unitModel === UnitModel.STANDALONE) {
+      // Each "floor" is one standalone unit: Villa-001, Plot-002, House-003…
+      for (let unitNum = 1; unitNum <= totalFloors; unitNum++) {
+        floors.push({
+          floorNumber: unitNum,
+          flats: [
+            {
+              flatNumber: standaloneUnitNumber(propertyType, unitNum),
+              floor: unitNum,
+              status: FlatStatus.AVAILABLE,
+              bedrooms: info.unitLabel === 'Plot' ? undefined : 3,
+              area: info.unitLabel === 'Plot' ? 2400 : 2000,
+            },
+          ],
+        });
+      }
+      return { floors, totalFlats: totalFloors, flatsPerFloor: 1 };
+    }
+    for (let floorNum = totalFloors; floorNum >= 1; floorNum--) {
+      const flats: Flat[] = [];
+      for (let flatNum = 1; flatNum <= flatsPerFloor; flatNum++) {
+        flats.push({
+          flatNumber: `${floorNum}${String(flatNum).padStart(2, '0')}`,
+          floor: floorNum,
+          status: FlatStatus.AVAILABLE,
+          bedrooms: info.siteType === 'commercial' ? undefined : 2,
+          area: 1000,
+        });
+      }
+      floors.push({ floorNumber: floorNum, flats });
+    }
+    return { floors, totalFlats: totalFloors * flatsPerFloor, flatsPerFloor };
+  }
 
   async createBuilding(createBuildingDto: any) {
     const {
@@ -33,71 +119,48 @@ export class BuildingsService {
       type,
       totalFloors,
       flatsPerFloor,
+      totalUnits,
       amenities,
       description,
+      organizationId: requestedOrg,
     } = createBuildingDto;
 
-    // Generate floors and flats/units structure based on building type
-    const floors: Floor[] = [];
-    const buildingType = type || 'Apartment';
+    const propertyType =
+      createBuildingDto.propertyType || propertyTypeFromLegacyLabel(type);
+    const info = propertyTypeInfo(propertyType);
+    const organizationId = this.resolveOrganizationForCreate(requestedOrg);
 
-    if (buildingType === 'Individual Home' || buildingType === 'Villa') {
-      // For Individual Home/Villa: Each "floor" represents one unit/house
-      for (let unitNum = 1; unitNum <= totalFloors; unitNum++) {
-        const unitNumber = `Unit-${String(unitNum).padStart(3, '0')}`;
-        floors.push({
-          floorNumber: unitNum,
-          flats: [
-            {
-              flatNumber: unitNumber,
-              floor: unitNum,
-              status: FlatStatus.AVAILABLE,
-              bedrooms: 3, // Default for houses
-              area: 2000, // Default sqft for houses
-            },
-          ],
-        });
-      }
-    } else {
-      // For Apartment/Tower/Commercial: Traditional floor-flat structure
-      for (let floorNum = totalFloors; floorNum >= 1; floorNum--) {
-        const flats: Flat[] = [];
-        for (let flatNum = 1; flatNum <= flatsPerFloor; flatNum++) {
-          const flatNumber = `${floorNum}${String(flatNum).padStart(2, '0')}`;
-          flats.push({
-            flatNumber,
-            floor: floorNum,
-            status: FlatStatus.AVAILABLE,
-            bedrooms: 2, // Default
-            area: 1000, // Default sqft
-          });
-        }
-        floors.push({
-          floorNumber: floorNum,
-          flats,
-        });
-      }
+    const duplicate = await this.buildingModel
+      .findOne({ organizationId, normalizedName: String(name).toLowerCase() })
+      .exec();
+    if (duplicate) {
+      throw new BadRequestException(
+        `A building named "${name}" already exists for this builder`,
+      );
     }
 
-    const totalFlats =
-      buildingType === 'Individual Home' || buildingType === 'Villa'
-        ? totalFloors
-        : totalFloors * flatsPerFloor;
+    const count = Math.max(1, Number(totalUnits ?? totalFloors ?? 1));
+    const perFloor = Math.max(1, Number(flatsPerFloor ?? 1));
+    const layout = this.buildFloors(propertyType, count, perFloor);
 
     const building = new this.buildingModel({
+      organizationId,
       name,
       address,
-      type: buildingType,
-      totalFloors,
-      flatsPerFloor:
-        buildingType === 'Individual Home' || buildingType === 'Villa'
-          ? 1
-          : flatsPerFloor,
-      floors,
+      type: type && !createBuildingDto.propertyType ? type : info.label,
+      propertyType,
+      unitModel: info.unitModel,
+      unitLabel: info.unitLabel,
+      siteType: info.siteType,
+      // Site rules follow the property type (commercial → guard approves at the desk).
+      settings: resolveSiteSettings(info.siteType),
+      totalFloors: count,
+      flatsPerFloor: layout.flatsPerFloor,
+      floors: layout.floors,
       amenities: amenities || [],
       description,
-      totalFlats,
-      availableFlats: totalFlats,
+      totalFlats: layout.totalFlats,
+      availableFlats: layout.totalFlats,
       occupiedFlats: 0,
     });
 
@@ -158,14 +221,40 @@ export class BuildingsService {
   }
 
   /**
+   * Run `work` inside a transaction when the deployment supports one (replica
+   * set / mongos) and fall back to a plain sequential run on a standalone
+   * MongoDB, where transactions are rejected outright.
+   */
+  private async withOptionalTransaction<T>(
+    work: (session: ClientSession | null) => Promise<T>,
+  ): Promise<T> {
+    const session = await this.buildingModel.db.startSession();
+    try {
+      let result!: T;
+      await session.withTransaction(async () => {
+        result = await work(session);
+      });
+      return result;
+    } catch (error: any) {
+      const message = String(error?.message || '');
+      const noTransactions =
+        error?.code === 20 ||
+        /Transaction numbers are only allowed|does not support transactions|replica set/i.test(
+          message,
+        );
+      if (!noTransactions) throw error;
+      return work(null);
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  /**
    * Bulk assign residents to flats atomically.
    * assignments: [{ residentId?, residentEmail?, flatNumber }]
    */
   async bulkAssign(buildingId: string, assignments: Array<{ residentId?: string; residentEmail?: string; flatNumber: string }>) {
-    const session = await this.buildingModel.db.startSession();
-    try {
-      let result: any;
-      await session.withTransaction(async () => {
+    await this.withOptionalTransaction(async (session) => {
         const building = await this.buildingModel.findById(buildingId).session(session).exec();
         if (!building) {
           throw new NotFoundException('Building not found');
@@ -212,6 +301,8 @@ export class BuildingsService {
           resident.block = building.name;
           resident.flat = a.flatNumber;
           resident.flatNo = a.flatNumber;
+          resident.buildingId = building._id;
+          if (building.organizationId) resident.organizationId = building.organizationId;
           await resident.save({ session });
         }
 
@@ -221,12 +312,9 @@ export class BuildingsService {
         }, 0);
         building.availableFlats = building.totalFlats - building.occupiedFlats;
 
-        result = await building.save({ session });
-      });
-      return { success: true };
-    } finally {
-      session.endSession();
-    }
+        await building.save({ session });
+    });
+    return { success: true };
   }
 
   async exportBuildingCsv(buildingId: string) {
@@ -249,7 +337,9 @@ export class BuildingsService {
     const page = options?.page && options.page > 0 ? options.page : undefined;
     const limit = options?.limit && options.limit > 0 ? options.limit : undefined;
 
-    const query = this.buildingModel.find().sort({ name: 1 });
+    const query = this.buildingModel
+      .find(TenantContext.buildingSelfFilter())
+      .sort({ name: 1 });
     if (limit && page) {
       query.skip((page - 1) * limit).limit(limit);
     } else if (limit) {
@@ -257,10 +347,18 @@ export class BuildingsService {
     }
 
     const buildings = await query.exec();
+    // Pre-dual-mode buildings: present the mode the server would infer, so the
+    // dashboard never shows (or saves back) "residential" for an office.
+    for (const b of buildings) {
+      if (!b.siteType) b.siteType = inferSiteType(b.type);
+      if (!b.settings) b.settings = resolveSiteSettings(b.siteType);
+      if (!b.propertyType) b.propertyType = propertyTypeFromLegacyLabel(b.type);
+    }
 
-    // Get all residents with building/flat info in one query
+    // Get all residents with building/flat info in one query (tenant-scoped)
     const allResidents = await this.userModel
       .find({
+        ...TenantContext.orgFilter(),
         $or: [
           { building: { $exists: true, $ne: null } },
           { flat: { $exists: true, $ne: null } },
@@ -359,16 +457,37 @@ export class BuildingsService {
     return buildings.map((b) => b.toObject());
   }
 
-  async getBuildingById(id: string) {
+  /** 404 when missing, 403 when it belongs to another builder / outside the manager's sites. */
+  async getScopedBuilding(id: string): Promise<BuildingDocument> {
+    if (!Types.ObjectId.isValid(String(id))) {
+      throw new NotFoundException('Building not found');
+    }
     const building = await this.buildingModel.findById(id).exec();
     if (!building) {
       throw new NotFoundException('Building not found');
     }
+    const scope = TenantContext.current();
+    if (
+      scope.organizationId &&
+      building.organizationId &&
+      String(building.organizationId) !== String(scope.organizationId)
+    ) {
+      throw new ForbiddenException('This building belongs to another organization');
+    }
+    if (!TenantContext.canAccessBuilding(building._id, scope)) {
+      throw new ForbiddenException('This building is outside your assigned sites');
+    }
+    return building;
+  }
+
+  async getBuildingById(id: string) {
+    const building = await this.getScopedBuilding(id);
 
     // Get all residents for this building in one query for better performance
     // Use case-insensitive matching for building name
     const allResidents = await this.userModel
       .find({
+        ...(building.organizationId ? { organizationId: building.organizationId } : {}),
         $or: [
           { building: { $exists: true, $ne: null } },
           { flat: { $exists: true, $ne: null } },
@@ -472,6 +591,7 @@ export class BuildingsService {
   }
 
   async deleteBuilding(id: string) {
+    await this.getScopedBuilding(id);
     const building = await this.buildingModel.findByIdAndDelete(id).exec();
     if (!building) {
       throw new NotFoundException('Building not found');
@@ -484,11 +604,8 @@ export class BuildingsService {
     flatNumber: string,
     residentId: string,
   ) {
-    // Use a mongoose session to make the assign operation atomic
-    const session: ClientSession = await this.buildingModel.db.startSession();
-    try {
-      let resultBuilding;
-      await session.withTransaction(async () => {
+    // Atomic where the deployment supports transactions (see helper).
+    return this.withOptionalTransaction(async (session) => {
         // Attempt an atomic update to set the flat to OCCUPIED only if it is currently AVAILABLE
         const updatedBuilding = await this.buildingModel
           .findOneAndUpdate(
@@ -529,11 +646,15 @@ export class BuildingsService {
           throw new NotFoundException('Resident not found');
         }
 
-        // Update resident's building and flat info
+        // Update resident's building and flat info (name + resolved references)
         resident.building = updatedBuilding.name;
         resident.block = updatedBuilding.name;
         resident.flat = flatNumber;
         resident.flatNo = flatNumber;
+        resident.buildingId = updatedBuilding._id as Types.ObjectId;
+        if (updatedBuilding.organizationId) {
+          resident.organizationId = updatedBuilding.organizationId as Types.ObjectId;
+        }
 
         await resident.save({ session });
 
@@ -555,21 +676,12 @@ export class BuildingsService {
         }, 0);
         updatedBuilding.availableFlats = updatedBuilding.totalFlats - updatedBuilding.occupiedFlats;
 
-        resultBuilding = await updatedBuilding.save({ session });
-      });
-
-      return resultBuilding;
-    } finally {
-      session.endSession();
-    }
+        return updatedBuilding.save({ session });
+    });
   }
 
   async unassignResidentFromFlat(buildingId: string, flatNumber: string) {
-    // Use a mongoose session to make the unassign operation atomic
-    const session: ClientSession = await this.buildingModel.db.startSession();
-    try {
-      let resultBuilding;
-      await session.withTransaction(async () => {
+    return this.withOptionalTransaction(async (session) => {
         const building = await this.buildingModel
           .findById(buildingId)
           .session(session)
@@ -623,13 +735,8 @@ export class BuildingsService {
           }
         }
 
-        resultBuilding = await building.save({ session });
-      });
-
-      return resultBuilding;
-    } finally {
-      session.endSession();
-    }
+        return building.save({ session });
+    });
   }
 
   async updateFlatDetails(
@@ -803,5 +910,141 @@ export class BuildingsService {
 
     await building.save();
     return { message: 'Image deleted successfully' };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Site mode (residential / commercial)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Buildings created before dual-mode support have no siteType/settings/token.
+   * Fill them in lazily rather than requiring the migration to have run.
+   */
+  private async backfillSiteFields(
+    building: BuildingDocument,
+  ): Promise<BuildingDocument> {
+    let dirty = false;
+    if (!building.siteType) {
+      building.siteType = inferSiteType(building.type);
+      dirty = true;
+    }
+    if (!building.settings) {
+      building.settings = resolveSiteSettings(building.siteType);
+      dirty = true;
+    }
+    if (!building.gateQrToken) {
+      building.gateQrToken = generateGateQrToken();
+      dirty = true;
+    }
+    if (dirty) {
+      await building.save();
+    }
+    return building;
+  }
+
+  async findByGateToken(gateQrToken: string): Promise<BuildingDocument> {
+    const building = await this.buildingModel
+      .findOne({ gateQrToken, isActive: true })
+      .exec();
+    if (!building) {
+      throw new NotFoundException('Unknown or deactivated gate QR code');
+    }
+    return this.backfillSiteFields(building);
+  }
+
+  /** Resolve a building from the plain name residents store on their profile. */
+  async findByName(
+    name?: string,
+    organizationId?: Types.ObjectId | string | null,
+  ): Promise<BuildingDocument | null> {
+    if (!name) return null;
+    const orgFilter = organizationId
+      ? { organizationId: new Types.ObjectId(String(organizationId)) }
+      : {};
+    const building = await this.buildingModel
+      .findOne({ ...orgFilter, normalizedName: name.toLowerCase() })
+      .exec();
+    if (building) return this.backfillSiteFields(building);
+    const loose = await this.buildingModel
+      .findOne({ ...orgFilter, name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') })
+      .exec();
+    return loose ? this.backfillSiteFields(loose) : null;
+  }
+
+  async getSiteContext(buildingId: string) {
+    const building = await this.buildingModel.findById(buildingId).exec();
+    if (!building) {
+      throw new NotFoundException('Building not found');
+    }
+    await this.backfillSiteFields(building);
+    return {
+      building,
+      siteType: building.siteType,
+      settings: resolveSiteSettings(building.siteType, building.settings),
+    };
+  }
+
+  async updateSiteSettings(
+    id: string,
+    dto: { siteType?: SiteType; settings?: Partial<SiteSettings> },
+  ) {
+    const building = await this.getScopedBuilding(id);
+    await this.backfillSiteFields(building);
+
+    if (dto.siteType && dto.siteType !== building.siteType) {
+      // Visits still waiting under the old rules would be orphaned (e.g. a
+      // guard-mode visit at a site that no longer lets guards approve).
+      await this.visitorModel.updateMany(
+        { buildingId: building._id, status: VisitorStatus.PENDING },
+        {
+          $set: {
+            status: VisitorStatus.REJECTED,
+            approvalMode: ApprovalMode.NONE,
+            rejectionReason: 'Site mode changed by the administrator. Please register again.',
+            approvedBy: { kind: ActorKind.SYSTEM },
+            approvedAt: new Date(),
+          },
+        },
+      );
+      // Switching mode re-bases the flags on that mode's defaults, then applies
+      // any explicit overrides sent alongside the switch.
+      building.siteType = dto.siteType;
+      building.settings = resolveSiteSettings(dto.siteType, dto.settings);
+      building.markModified('settings');
+    } else if (dto.settings) {
+      // Partial update: keep every flag not mentioned in the request.
+      building.settings = resolveSiteSettings(building.siteType, {
+        ...toPlainSettings(building.settings),
+        ...toPlainSettings(dto.settings),
+      });
+      building.markModified('settings');
+    }
+
+    await building.save();
+    return {
+      id: building._id.toString(),
+      name: building.name,
+      siteType: building.siteType,
+      settings: building.settings,
+    };
+  }
+
+  async rotateGateQrToken(id: string) {
+    const building = await this.getScopedBuilding(id);
+    building.gateQrToken = generateGateQrToken();
+    await building.save();
+    return { id: building._id.toString(), gateQrToken: building.gateQrToken };
+  }
+
+  async getGateQr(id: string) {
+    const building = await this.getScopedBuilding(id);
+    await this.backfillSiteFields(building);
+    return {
+      id: building._id.toString(),
+      name: building.name,
+      address: building.address,
+      siteType: building.siteType,
+      gateQrToken: building.gateQrToken,
+    };
   }
 }

@@ -50,10 +50,33 @@ export class UsersService {
       isProfileComplete: true,
     };
 
+    // Resolve the building reference from the name the app sends, so the
+    // resident is fenced into the right builder (organization).
+    if (updateProfileDto.building) {
+      const named = await this.buildingModel
+        .findOne({
+          $or: [
+            { normalizedName: String(updateProfileDto.building).toLowerCase() },
+            { name: updateProfileDto.building },
+          ],
+        })
+        .exec();
+      if (named) {
+        updateData.buildingId = named._id;
+        updateData.organizationId = named.organizationId;
+        updateData.building = named.name;
+      }
+    }
+
     // If building and flat are provided, update building flat status
     if (updateProfileDto.building && updateProfileDto.flat) {
       const building = await this.buildingModel
-        .findOne({ name: updateProfileDto.building })
+        .findOne({
+          $or: [
+            { normalizedName: String(updateProfileDto.building).toLowerCase() },
+            { name: updateProfileDto.building },
+          ],
+        })
         .exec();
       if (building) {
         for (const floor of building.floors) {
@@ -104,6 +127,8 @@ export class UsersService {
     if (user && (updateProfileDto.building || updateProfileDto.flat || updateProfileDto.block || updateProfileDto.flatNo)) {
       const propagateFields: any = {};
       if (user.building !== undefined) propagateFields.building = user.building;
+      if (user.buildingId !== undefined) propagateFields.buildingId = user.buildingId;
+      if (user.organizationId !== undefined) propagateFields.organizationId = user.organizationId;
       if (user.block !== undefined) propagateFields.block = user.block;
       if (user.flat !== undefined) propagateFields.flat = user.flat;
       if (user.flatNo !== undefined) propagateFields.flatNo = user.flatNo;

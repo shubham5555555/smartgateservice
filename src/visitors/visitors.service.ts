@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Injectable,
   NotFoundException,
   Inject,
@@ -7,50 +8,68 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Visitor, VisitorDocument } from '../schemas/visitor.schema';
+import {
+  ActorKind,
+  ApprovalMode,
+  Visitor,
+  VisitorDocument,
+  VisitorSource,
+  VisitorType,
+} from '../schemas/visitor.schema';
 import { CreateVisitorDto } from './dto/create-visitor.dto';
 import { SelfRegisterVisitorDto } from './dto/self-register-visitor.dto';
 import { VisitorStatus } from '../schemas/visitor.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { User } from '../schemas/user.schema';
+import { VisitPassService } from '../visits/visit-pass.service';
+import { PublicVisitsService } from '../visits/public-visits.service';
+import { Building, BuildingDocument } from '../schemas/building.schema';
 
 @Injectable()
 export class VisitorsService {
   constructor(
     @InjectModel(Visitor.name) private visitorModel: Model<VisitorDocument>,
     @InjectModel(User.name) private userModel: Model<User>,
+    private passService: VisitPassService,
+    private publicVisitsService: PublicVisitsService,
+    @InjectModel(Building.name) private buildingModel: Model<BuildingDocument>,
     @Inject(forwardRef(() => NotificationsService))
     private notificationsService?: NotificationsService,
   ) { }
 
   async createVisitor(userId: string, createDto: CreateVisitorDto) {
-    // Generate QR code data (visitor ID + timestamp)
-    const qrData = JSON.stringify({
-      visitorId: new Types.ObjectId().toString(),
-      userId: userId,
-      timestamp: Date.now(),
-    });
+    const ctx = await this.passService.contextForUser(userId);
 
     const visitor = new this.visitorModel({
       ...createDto,
       userId: new Types.ObjectId(userId),
+      buildingId: ctx.buildingId,
+      buildingName: ctx.buildingName,
+      organizationId: ctx.organizationId,
+      siteType: ctx.siteType,
+      source: createDto.isPreApproved
+        ? VisitorSource.INVITE
+        : VisitorSource.RESIDENT,
+      approvalMode: this.passService.approvalModeFor(
+        ctx.settings,
+        true,
+        !!createDto.isPreApproved,
+      ),
       status: createDto.isPreApproved
         ? VisitorStatus.APPROVED
         : VisitorStatus.PENDING,
       expectedDate: createDto.expectedDate
         ? new Date(createDto.expectedDate)
         : undefined,
-      qrCode: qrData,
     });
-    const savedVisitor = await visitor.save();
 
-    // Update QR code with actual visitor ID
-    savedVisitor.qrCode = JSON.stringify({
-      visitorId: savedVisitor._id.toString(),
-      userId: userId,
-      timestamp: Date.now(),
-    });
-    return savedVisitor.save();
+    if (createDto.isPreApproved) {
+      visitor.approvedBy = { kind: ActorKind.RESIDENT, id: userId };
+      visitor.approvedAt = new Date();
+    }
+    await this.passService.issuePass(visitor, ctx.settings);
+
+    return visitor.save();
   }
 
   async getVisitors(userId: string) {
@@ -75,27 +94,27 @@ export class VisitorsService {
       .exec();
   }
 
-  async approveVisitor(visitorId: string) {
+  /** Legacy guard/admin route. Same rules as the /admin equivalent. */
+  async approveVisitor(visitorId: string, jwtUser?: any) {
     const visitor = await this.visitorModel
       .findById(visitorId)
       .populate('userId');
     if (!visitor) {
       throw new NotFoundException('Visitor not found');
     }
-    visitor.status = VisitorStatus.APPROVED;
-
-    // Ensure QR code exists
-    if (!visitor.qrCode) {
-      const userId =
-        visitor.userId instanceof Types.ObjectId
-          ? visitor.userId.toString()
-          : (visitor.userId as any)?._id?.toString() || '';
-      visitor.qrCode = JSON.stringify({
-        visitorId: visitor._id.toString(),
-        userId: userId,
-        timestamp: Date.now(),
-      });
+    if (visitor.status !== VisitorStatus.PENDING) {
+      throw new BadRequestException(`Visitor is already ${visitor.status}`);
     }
+    const ctx = visitor.buildingId
+      ? await this.passService.contextFromBuildingId(visitor.buildingId)
+      : await this.passService.contextForUser(visitor.userId);
+    const actor = this.passService.actorFromJwt(jwtUser);
+    if (actor.kind === ActorKind.GUARD && !ctx.settings.guardCanApprove) {
+      throw new ForbiddenException(
+        'Guards cannot approve visitors at this site. The resident must approve.',
+      );
+    }
+    await this.passService.approve(visitor, actor, ctx.settings);
 
     const savedVisitor = await visitor.save();
 
@@ -125,13 +144,21 @@ export class VisitorsService {
     return savedVisitor;
   }
 
-  async recordEntry(visitorId: string) {
+  async recordEntry(visitorId: string, jwtUser?: any) {
     const visitor = await this.visitorModel.findById(visitorId);
     if (!visitor) {
       throw new NotFoundException('Visitor not found');
     }
+    const ctx = visitor.buildingId
+      ? await this.passService.contextFromBuildingId(visitor.buildingId)
+      : await this.passService.contextForUser(visitor.userId);
+    this.passService.assertCanEnter(visitor, ctx.settings);
     visitor.status = VisitorStatus.INSIDE;
     visitor.entryTime = new Date();
+    visitor.exitTime = undefined;
+    visitor.checkOutGate = undefined;
+    visitor.autoClosed = false;
+    visitor.checkInBy = this.passService.actorFromJwt(jwtUser);
     const saved = await visitor.save();
 
     if (this.notificationsService && visitor.userId) {
@@ -152,6 +179,11 @@ export class VisitorsService {
     if (!visitor) {
       throw new NotFoundException('Visitor not found');
     }
+    if (visitor.status !== VisitorStatus.INSIDE) {
+      throw new BadRequestException(
+        `Cannot record exit: visitor is ${visitor.status}, not Inside`,
+      );
+    }
     visitor.status = VisitorStatus.LEFT;
     visitor.exitTime = new Date();
     return visitor.save();
@@ -169,13 +201,28 @@ export class VisitorsService {
       throw new NotFoundException('No visitor found with this phone number');
     }
 
+    // Public, keyed only by a phone number: never expose the host resident,
+    // the pass token/code, or the record id. The QR is returned only once the
+    // visit is approved (it is what the visitor needs to show at the gate).
+    const v: any = visitor;
+    const approved =
+      v.status === VisitorStatus.APPROVED || v.status === VisitorStatus.INSIDE;
     return {
-      ...visitor,
-      _id: visitor._id.toString(),
-      userId:
-        visitor.userId instanceof Types.ObjectId
-          ? visitor.userId.toString()
-          : (visitor.userId as any)?._id?.toString() || visitor.userId,
+      name: v.name,
+      type: v.type,
+      status: v.status,
+      approvalMode: v.approvalMode,
+      phoneNumber: v.phoneNumber,
+      buildingName: v.buildingName,
+      hostUnit: v.hostUnit,
+      hostCompany: v.hostCompany,
+      expectedDate: v.expectedDate,
+      entryTime: v.entryTime,
+      exitTime: v.exitTime,
+      expiresAt: v.expiresAt,
+      rejectionReason: v.rejectionReason,
+      createdAt: v.createdAt,
+      qrCode: approved ? v.qrCode : undefined,
     };
   }
 
@@ -201,16 +248,14 @@ export class VisitorsService {
       throw new BadRequestException(`Visitor is already ${visitor.status}`);
     }
 
-    visitor.status = VisitorStatus.APPROVED;
-
-    // Ensure QR code exists
-    if (!visitor.qrCode) {
-      visitor.qrCode = JSON.stringify({
-        visitorId: visitor._id.toString(),
-        userId: visitorUserId,
-        timestamp: Date.now(),
-      });
-    }
+    const ctx = visitor.buildingId
+      ? await this.passService.contextFromBuildingId(visitor.buildingId)
+      : await this.passService.contextForUser(visitorUserId);
+    await this.passService.approve(
+      visitor,
+      { kind: ActorKind.RESIDENT, id: visitorUserId },
+      ctx.settings,
+    );
 
     return visitor.save();
   }
@@ -241,15 +286,59 @@ export class VisitorsService {
       throw new BadRequestException(`Visitor is already ${visitor.status}`);
     }
 
-    visitor.status = VisitorStatus.REJECTED;
+    this.passService.reject(
+      visitor,
+      { kind: ActorKind.RESIDENT, id: visitorUserId },
+      reason,
+    );
     return visitor.save();
   }
 
   async selfRegisterVisitor(selfRegisterDto: SelfRegisterVisitorDto) {
-    // Find resident by email
+    // Building-aware path (generic registration page): commercial buildings
+    // need no e-mail — the visit goes to the guard queue; residential ones
+    // resolve the host by flat number or e-mail inside that building.
+    if (selfRegisterDto.buildingId) {
+      const building = await this.buildingModel
+        .findOne({ _id: selfRegisterDto.buildingId, isActive: true })
+        .exec();
+      if (!building) {
+        throw new BadRequestException('Building not found');
+      }
+      return this.publicVisitsService.createForBuilding(
+        building,
+        {
+          name: selfRegisterDto.name,
+          phoneNumber: selfRegisterDto.phoneNumber || '',
+          type: selfRegisterDto.type,
+          purpose: selfRegisterDto.purpose,
+          flatNumber: selfRegisterDto.flatNumber,
+          block: selfRegisterDto.block,
+          residentEmail: selfRegisterDto.residentEmail,
+          hostCompany: selfRegisterDto.hostCompany,
+          hostPersonName: selfRegisterDto.hostPersonName,
+          hostFloor: selfRegisterDto.hostFloor,
+          hostUnit: selfRegisterDto.hostUnit,
+          vehicleNumber: selfRegisterDto.vehicleNumber,
+          guestCount: selfRegisterDto.guestCount,
+          expectedDate: selfRegisterDto.expectedDate,
+          expectedTime: selfRegisterDto.expectedTime,
+          idProofType: selfRegisterDto.idProofType,
+          idProofLast4: selfRegisterDto.idProofLast4,
+        },
+        { viaPoster: false },
+      );
+    }
+
+    // Legacy path: host resident identified by e-mail only.
+    if (!selfRegisterDto.residentEmail) {
+      throw new BadRequestException(
+        'Pick the building you are visiting, or give the resident\'s e-mail.',
+      );
+    }
     const resident = await this.userModel
       .findOne({
-        email: selfRegisterDto.residentEmail,
+        normalizedEmail: selfRegisterDto.residentEmail.trim().toLowerCase(),
         isApprovedByAdmin: true, // Only allow visits to approved residents
       })
       .exec();
@@ -260,13 +349,7 @@ export class VisitorsService {
       );
     }
 
-    // Generate QR code data
-    const visitorId = new Types.ObjectId();
-    const qrData = JSON.stringify({
-      visitorId: visitorId.toString(),
-      userId: resident._id.toString(),
-      timestamp: Date.now(),
-    });
+    const ctx = await this.passService.contextForUser(resident._id.toString());
 
     // Parse expected date and time if provided
     let expectedDate: Date | undefined;
@@ -286,23 +369,23 @@ export class VisitorsService {
     const visitor = new this.visitorModel({
       name: selfRegisterDto.name,
       phoneNumber: selfRegisterDto.phoneNumber,
-      type: selfRegisterDto.type,
+      type: selfRegisterDto.type || VisitorType.GUEST,
+      purpose: selfRegisterDto.purpose,
       userId: resident._id,
+      buildingId: ctx.buildingId,
+      buildingName: ctx.buildingName,
+      organizationId: ctx.organizationId,
+      siteType: ctx.siteType,
+      source: VisitorSource.GATE_QR,
+      approvalMode: this.passService.approvalModeFor(ctx.settings, true, false),
       status: VisitorStatus.PENDING, // Always pending for self-registered visitors
       isPreApproved: false,
       expectedDate: expectedDate,
-      qrCode: qrData,
     });
+    await this.passService.issuePass(visitor, ctx.settings);
 
     const savedVisitor = await visitor.save();
-
-    // Update QR code with actual visitor ID
-    savedVisitor.qrCode = JSON.stringify({
-      visitorId: savedVisitor._id.toString(),
-      userId: resident._id.toString(),
-      timestamp: Date.now(),
-    });
-    await savedVisitor.save();
+    const view = this.passService.publicView(savedVisitor);
 
     // Send notification to resident about new visitor request
     if (this.notificationsService) {
@@ -322,6 +405,6 @@ export class VisitorsService {
         });
     }
 
-    return savedVisitor;
+    return { ...view, message: 'Registered. Waiting for the resident to approve your visit.' };
   }
 }

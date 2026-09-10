@@ -24,7 +24,12 @@ import { CommonModule } from './common/common.module';
 import { BuildingsModule } from './buildings/buildings.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { ContactsModule } from './contacts/contacts.module';
+import { VisitsModule } from './visits/visits.module';
 import { MetricsController } from './metrics/metrics.controller';
+import { TenancyModule } from './tenancy/tenancy.module';
+import { tenantPlugin } from './tenancy/tenant.plugin';
+import { OrganizationsModule } from './organizations/organizations.module';
+import { WatchlistModule } from './watchlist/watchlist.module';
 
 @Module({
   imports: [
@@ -39,10 +44,18 @@ import { MetricsController } from './metrics/metrics.controller';
           'MONGODB_URI',
           'mongodb://localhost:27017/smartgate',
         ),
+        // Multi-builder tenancy is enforced on every model (see tenant.plugin.ts).
+        connectionFactory: (connection) => {
+          connection.plugin(tenantPlugin);
+          return connection;
+        },
       }),
       inject: [ConfigService],
     }),
     CommonModule, // Global module for S3Service
+    TenancyModule, // Global: tenant scope interceptor + RolesGuard
+    OrganizationsModule,
+    WatchlistModule,
     AuthModule,
     UsersModule,
     StaffModule,
@@ -63,6 +76,7 @@ import { MetricsController } from './metrics/metrics.controller';
     BuildingsModule,
     RemindersModule,
     ContactsModule,
+    VisitsModule,
   ],
   controllers: [AppController, MetricsController],
   providers: [AppService],

@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -11,11 +12,19 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { User, UserDocument } from '../schemas/user.schema';
 import {
+  Actor,
+  ActorKind,
+  ApprovalMode,
   Visitor,
   VisitorDocument,
+  VisitorSource,
   VisitorStatus,
   VisitorType,
 } from '../schemas/visitor.schema';
+import { SiteType } from '../schemas/site-settings';
+import { VisitPassService } from '../visits/visit-pass.service';
+import { VisitRulesService } from '../visits/visit-rules.service';
+import { ParcelStatus } from '../schemas/parcel.schema';
 import {
   Maintenance,
   MaintenanceDocument,
@@ -84,7 +93,13 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { Inject, forwardRef } from '@nestjs/common';
 import { CreateVisitorDto } from '../visitors/dto/create-visitor.dto';
 import { EmailService } from '../common/email.service';
+import { S3Service } from '../common/s3.service';
 import { EscalationService } from '../common/escalation.service';
+import { AdminUsersService } from '../organizations/admin-users.service';
+import { TenantContext } from '../tenancy/tenant-context';
+import { TenantService } from '../tenancy/tenant.service';
+import { AdminRole } from '../schemas/admin-user.schema';
+import { resolveSiteSettings } from '../schemas/site-settings';
 
 @Injectable()
 export class AdminService {
@@ -125,58 +140,62 @@ export class AdminService {
     private configService: ConfigService,
     private emailService: EmailService,
     private escalationService: EscalationService,
+    private passService: VisitPassService,
+    private adminUsersService: AdminUsersService,
+    private s3Service: S3Service,
+    private tenantService: TenantService,
+    private visitRules: VisitRulesService,
     @Inject(forwardRef(() => NotificationsService))
     private notificationsService?: NotificationsService,
   ) { }
 
   // Auth methods
+  /**
+   * Admin login. Accounts live in the `adminusers` collection (multi-user,
+   * multi-builder); the `.env` credentials are bootstrapped into it as the
+   * platform super admin, and still work as a last-resort fallback.
+   */
   async login(email: string, password: string) {
-    // For admin, we'll use a simple check or create admin user
-    // In production, you'd have a separate Admin model
+    const account = await this.adminUsersService.authenticate(email, password);
+    if (account) {
+      const payload = this.adminUsersService.tokenPayload(account);
+      const token = this.jwtService.sign(payload);
+      return { token, user: await this.adminUsersService.toPublic(account) };
+    }
+
+    // Legacy fallback: the env admin, if the bootstrap did not run.
     const adminEmail = this.configService.get<string>('ADMIN_EMAIL', 'admin@smartgate.com');
     const adminPassword = this.configService.get<string>('ADMIN_PASSWORD', 'admin123');
     const hashedPassword = this.configService.get<string>('ADMIN_PASSWORD_HASHED');
-
-    if (email !== adminEmail) {
-      throw new UnauthorizedException('Invalid email or password');
+    if ((email || '').toLowerCase() === adminEmail.toLowerCase()) {
+      const ok = hashedPassword
+        ? await bcrypt.compare(password, hashedPassword)
+        : password === adminPassword;
+      if (ok) {
+        const payload = { email: adminEmail, sub: 'admin', role: 'admin' };
+        return {
+          token: this.jwtService.sign(payload),
+          user: { email: adminEmail, role: 'super_admin', name: 'Admin', buildingIds: [] },
+        };
+      }
     }
-
-    // Check password - use bcrypt if hashed password is provided
-    let isPasswordValid = false;
-    if (hashedPassword) {
-      isPasswordValid = await bcrypt.compare(password, hashedPassword);
-    } else {
-      // For demo, compare plain password
-      isPasswordValid = password === adminPassword;
-    }
-
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid email or password');
-    }
-
-    // Generate JWT token
-    const payload = { email, sub: 'admin', role: 'admin' };
-    const token = this.jwtService.sign(payload);
-
-    return {
-      token,
-      user: {
-        email,
-        role: 'admin',
-        name: 'Admin',
-      },
-    };
+    throw new UnauthorizedException('Invalid email or password');
   }
 
+  /** The caller's own admin profile — drives the dashboard header, sidebar and org switcher. */
   async getCurrentUser(user: any) {
+    if (user?.userId && Types.ObjectId.isValid(String(user.userId)) && user.role !== 'guard') {
+      const account = await this.adminUsersService.findById(String(user.userId));
+      if (account) return this.adminUsersService.toPublic(account);
+    }
     return {
-      email: user.email,
-      role: user.role,
-      name: 'Admin',
+      email: user?.email,
+      role: user?.role === 'admin' ? 'super_admin' : user?.role,
+      name: user?.name || 'Admin',
+      buildingIds: [],
     };
   }
 
-  // Guard Auth
   async guardLogin(loginId: string, password: string) {
     const guard = await this.guardModel
       .findOne({
@@ -200,6 +219,10 @@ export class AdminService {
       phoneNumber: guard.phoneNumber,
       sub: guard._id.toString(),
       role: 'guard',
+      name: guard.name,
+      // Tenant claims: which builder / sites this guard covers.
+      organizationId: guard.organizationId ? guard.organizationId.toString() : undefined,
+      buildingIds: (guard.buildingIds || []).map((b) => b.toString()),
     };
     const token = this.jwtService.sign(payload);
 
@@ -213,8 +236,34 @@ export class AdminService {
         email: guard.email,
         gateNumber: guard.gateNumber,
         role: 'guard',
+        organizationId: guard.organizationId ? guard.organizationId.toString() : undefined,
+        buildingIds: (guard.buildingIds || []).map((b) => b.toString()),
       },
     };
+  }
+
+  /** Buildings a guard may process visitors for (their organization, or their assigned sites). */
+  async getGuardSites() {
+    const buildings = await this.buildingModel
+      .find(TenantContext.buildingSelfFilter())
+      .select('name address type propertyType unitLabel unitModel siteType settings totalFloors totalFlats organizationId image')
+      .sort({ name: 1 })
+      .lean()
+      .exec();
+    // Photo capture only makes sense when the server can store the file.
+    const photoUploadAvailable = this.s3Service.isConfigured;
+    const out: any[] = [];
+    for (const b of buildings as any[]) {
+      const settings = resolveSiteSettings(b.siteType, b.settings);
+      out.push({
+        ...b,
+        settings,
+        photoUploadAvailable,
+        visitTypes: this.visitRules.catalogue(b.siteType, settings),
+        occupancy: settings.maxInside ? { inside: await this.visitRules.occupancy(b._id), max: settings.maxInside } : null,
+      });
+    }
+    return out;
   }
 
   // Guard Management
@@ -253,7 +302,18 @@ export class AdminService {
     email?: string;
     shift?: string;
     gateNumber?: string;
+    organizationId?: string;
+    buildingIds?: string[];
   }) {
+    const scope = TenantContext.current();
+    const organizationId = TenantContext.isPlatform(scope)
+      ? (data.organizationId || (scope.organizationId ? String(scope.organizationId) : undefined))
+      : String(TenantContext.requireOrganizationId(scope));
+    if (!organizationId) {
+      throw new BadRequestException('organizationId is required: pick the builder this guard works for');
+    }
+    const buildingIds = await this.validateGuardBuildings(data.buildingIds, organizationId);
+
     // Check if guardId or phoneNumber already exists
     const existingGuard = await this.guardModel
       .findOne({
@@ -267,8 +327,24 @@ export class AdminService {
       );
     }
 
-    const guard = new this.guardModel(data);
+    const guard = new this.guardModel({
+      ...data,
+      organizationId: new Types.ObjectId(organizationId),
+      buildingIds,
+    });
     return guard.save();
+  }
+
+  private async validateGuardBuildings(ids: string[] | undefined, organizationId: string) {
+    if (!ids || ids.length === 0) return [];
+    const objectIds = ids.map((i) => new Types.ObjectId(i));
+    const found = await this.buildingModel
+      .countDocuments({ _id: { $in: objectIds }, organizationId: new Types.ObjectId(organizationId) })
+      .exec();
+    if (found !== objectIds.length) {
+      throw new BadRequestException('One or more buildings do not belong to that organization');
+    }
+    return objectIds;
   }
 
   async updateGuard(
@@ -281,11 +357,20 @@ export class AdminService {
       isActive: boolean;
       isOnDuty: boolean;
       password?: string;
+      buildingIds?: string[];
     }>,
   ) {
     const guard = await this.guardModel.findById(id).exec();
     if (!guard) {
       throw new NotFoundException('Guard not found');
+    }
+
+    if (data.buildingIds !== undefined) {
+      guard.buildingIds = await this.validateGuardBuildings(
+        data.buildingIds,
+        String(guard.organizationId || TenantContext.current().organizationId || ''),
+      );
+      delete (data as any).buildingIds;
     }
 
     if (data.password) {
@@ -335,54 +420,59 @@ export class AdminService {
   }
 
   async changePassword(
-    email: string,
+    user: any,
     currentPassword: string,
     newPassword: string,
   ) {
+    // Multi-user admins: the account lives in the adminusers collection.
+    if (user?.userId && Types.ObjectId.isValid(String(user.userId))) {
+      return this.adminUsersService.changeOwnPassword(
+        String(user.userId),
+        currentPassword,
+        newPassword,
+      );
+    }
+
+    // Legacy env admin token.
     const adminEmail = this.configService.get<string>('ADMIN_EMAIL', 'admin@smartgate.com');
     const adminPassword = this.configService.get<string>('ADMIN_PASSWORD', 'admin123');
     const hashedPassword = this.configService.get<string>('ADMIN_PASSWORD_HASHED');
-
-    if (email !== adminEmail) {
+    if ((user?.email || '').toLowerCase() !== adminEmail.toLowerCase()) {
       throw new UnauthorizedException('Invalid email');
     }
-
-    // Verify current password
-    let isPasswordValid = false;
-    if (hashedPassword) {
-      isPasswordValid = await bcrypt.compare(currentPassword, hashedPassword);
-    } else {
-      isPasswordValid = currentPassword === adminPassword;
-    }
-
+    const isPasswordValid = hashedPassword
+      ? await bcrypt.compare(currentPassword, hashedPassword)
+      : currentPassword === adminPassword;
     if (!isPasswordValid) {
       throw new UnauthorizedException('Current password is incorrect');
     }
-
-    // Hash new password
-    const saltRounds = 10;
-    const newHashedPassword = await bcrypt.hash(newPassword, saltRounds);
-
-    // In production, save to database
-    // For now, return success message
-    return {
-      message: 'Password changed successfully',
-      // Note: In production, update ADMIN_PASSWORD_HASHED in database
-    };
+    throw new BadRequestException(
+      'This account is managed through .env. Log in again to use the multi-user admin account and change the password there.',
+    );
   }
 
   async refreshToken(user: any) {
-    // Generate new JWT token
-    const payload = { email: user.email, sub: user.sub, role: user.role };
+    if (user?.userId && Types.ObjectId.isValid(String(user.userId)) && user.role !== 'guard') {
+      const account = await this.adminUsersService.findById(String(user.userId));
+      if (account && account.isActive) {
+        const token = this.jwtService.sign(this.adminUsersService.tokenPayload(account));
+        return { token, user: await this.adminUsersService.toPublic(account) };
+      }
+    }
+    const payload = {
+      email: user.email,
+      sub: user.sub,
+      role: user.role,
+      name: user.name,
+      organizationId: user.organizationId,
+      buildingIds: user.buildingIds || [],
+      guardId: user.guardId,
+      phoneNumber: user.phoneNumber,
+    };
     const token = this.jwtService.sign(payload);
-
     return {
       token,
-      user: {
-        email: user.email,
-        role: user.role,
-        name: 'Admin',
-      },
+      user: { email: user.email, role: user.role, name: user.name || 'Admin' },
     };
   }
 
@@ -1593,15 +1683,28 @@ export class AdminService {
       throw new Error('User with this email or phone number already exists');
     }
 
-    // Format address with building and flat number
-    const address = `${createResidentDto.building}, Flat ${createResidentDto.flatNo}`;
+    const site = await this.resolveResidentBuilding(
+      createResidentDto.buildingId,
+      createResidentDto.building,
+    );
+    if (!site) {
+      // A resident always belongs to a real building of a builder.
+      throw new BadRequestException(
+        `Building "${createResidentDto.building}" was not found. Create the building first, or pick it from the list.`,
+      );
+    }
+    const unitLabel = site.unitLabel || 'Flat';
+    // Format address with building and unit number
+    const address = `${site?.name || createResidentDto.building}, ${unitLabel} ${createResidentDto.flatNo}`;
 
     const user = new this.userModel({
       fullName: createResidentDto.fullName,
       email: createResidentDto.email,
       phoneNumber: createResidentDto.phoneNumber,
       address: address,
-      building: createResidentDto.building,
+      building: site?.name || createResidentDto.building,
+      buildingId: site?._id,
+      organizationId: site?.organizationId,
       flatNo: createResidentDto.flatNo,
       residentType: createResidentDto.residentType,
       emergencyContact: createResidentDto.emergencyContact,
@@ -1609,6 +1712,8 @@ export class AdminService {
       aadharNumber: createResidentDto.aadharNumber,
       panNumber: createResidentDto.panNumber,
       isProfileComplete: true,
+      // Created by an admin of the builder: no separate approval step needed.
+      isApprovedByAdmin: true,
       createdAt: new Date(),
     });
 
@@ -1622,14 +1727,40 @@ export class AdminService {
     }
 
     // Update address if building or flatNo changed
-    if (updateResidentDto.building || updateResidentDto.flatNo) {
+    if (updateResidentDto.building || updateResidentDto.buildingId || updateResidentDto.flatNo) {
+      const site = await this.resolveResidentBuilding(
+        updateResidentDto.buildingId,
+        updateResidentDto.building || user.building,
+      );
+      if (site) {
+        updateResidentDto.building = site.name;
+        updateResidentDto.buildingId = site._id;
+        updateResidentDto.organizationId = site.organizationId;
+      }
       const building = updateResidentDto.building || user.building;
       const flatNo = updateResidentDto.flatNo || user.flatNo;
-      updateResidentDto.address = `${building}, Flat ${flatNo}`;
+      updateResidentDto.address = `${building}, ${site?.unitLabel || 'Flat'} ${flatNo}`;
     }
 
     Object.assign(user, updateResidentDto);
     return user.save();
+  }
+
+  /** Building by id or (case-insensitive) name, inside the caller's tenant. */
+  private async resolveResidentBuilding(buildingId?: string, name?: string) {
+    if (buildingId && Types.ObjectId.isValid(buildingId)) {
+      const byId = await this.buildingModel.findById(buildingId).exec();
+      if (byId) return byId;
+    }
+    if (!name) return null;
+    return this.buildingModel
+      .findOne({
+        $or: [
+          { normalizedName: name.toLowerCase() },
+          { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+        ],
+      })
+      .exec();
   }
 
   async deleteResident(id: string) {
@@ -1976,16 +2107,22 @@ export class AdminService {
   }
 
   // Parcels
-  async getAllParcels(status?: string, search?: string) {
+  async getAllParcels(status?: string, search?: string, buildingId?: string) {
     const query: any = {};
     if (status) {
       query.status = status;
     }
+    if (buildingId && Types.ObjectId.isValid(buildingId)) {
+      query.buildingId = new Types.ObjectId(buildingId);
+    }
     if (search) {
+      const safe = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [
-        { trackingNumber: { $regex: search, $options: 'i' } },
-        { recipientName: { $regex: search, $options: 'i' } },
-        { flatNumber: { $regex: search, $options: 'i' } },
+        { trackingNumber: { $regex: safe, $options: 'i' } },
+        { recipientName: { $regex: safe, $options: 'i' } },
+        { recipientCompany: { $regex: safe, $options: 'i' } },
+        { flatNumber: { $regex: safe, $options: 'i' } },
+        { recipientUnit: { $regex: safe, $options: 'i' } },
       ];
     }
     return this.parcelModel
@@ -2025,9 +2162,18 @@ export class AdminService {
   }
 
   async adminCreateParcel(dto: any) {
+    // Resolve the site so commercial parcels carry building / recipient details.
+    let site: any = null;
+    if (dto.buildingId && Types.ObjectId.isValid(dto.buildingId)) {
+      site = await this.buildingModel.findById(dto.buildingId).exec();
+    }
     const parcel = new this.parcelModel({
       ...dto,
+      buildingId: site?._id,
+      buildingName: site?.name,
+      siteType: site?.siteType,
       status: 'Pending',
+      loggedBy: dto.loggedBy || TenantContext.current().name || 'Desk',
     });
     return parcel.save();
   }
@@ -2037,16 +2183,22 @@ export class AdminService {
     status: string,
     collectedBy?: string,
     notes?: string,
+    extra?: { collectedByPhone?: string; collectedByIdLast4?: string },
   ) {
     const parcelEntry = await this.parcelModel.findById(id);
     if (!parcelEntry) {
       throw new NotFoundException('Parcel not found');
+    }
+    if (parcelEntry.status !== 'Pending' && status !== 'Pending') {
+      throw new BadRequestException(`Parcel is already ${parcelEntry.status}`);
     }
 
     parcelEntry.status = status as any;
     if (status === 'Collected') {
       parcelEntry.collectedBy = collectedBy || 'Guard';
       parcelEntry.collectedAt = new Date();
+      if (extra?.collectedByPhone) parcelEntry.collectedByPhone = extra.collectedByPhone;
+      if (extra?.collectedByIdLast4) parcelEntry.collectedByIdLast4 = extra.collectedByIdLast4;
     }
     if (status === 'Returned') {
       parcelEntry.returnedAt = new Date();
@@ -2192,16 +2344,31 @@ export class AdminService {
     type?: string,
     preApproved?: boolean,
     search?: string,
+    filters?: {
+      buildingId?: string;
+      siteType?: string;
+      approvalMode?: string;
+    },
+    paging?: { page?: number; limit?: number },
   ) {
     const query: any = {};
     if (status) query.status = status;
     if (type) query.type = type;
     if (preApproved !== undefined) query.isPreApproved = preApproved;
+    if (filters?.buildingId && Types.ObjectId.isValid(filters.buildingId)) {
+      query.buildingId = new Types.ObjectId(filters.buildingId);
+    }
+    if (filters?.siteType) query.siteType = filters.siteType;
+    if (filters?.approvalMode) query.approvalMode = filters.approvalMode;
     if (search) {
+      const safe = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { phoneNumber: { $regex: search, $options: 'i' } },
-        { purpose: { $regex: search, $options: 'i' } },
+        { name: { $regex: safe, $options: 'i' } },
+        { phoneNumber: { $regex: safe, $options: 'i' } },
+        { purpose: { $regex: safe, $options: 'i' } },
+        { hostCompany: { $regex: safe, $options: 'i' } },
+        { hostPersonName: { $regex: safe, $options: 'i' } },
+        { passCode: search.trim().toUpperCase() },
       ];
     }
 
@@ -2209,9 +2376,113 @@ export class AdminService {
       .find(query)
       .populate('userId', 'fullName phoneNumber building flatNo')
       .sort({ createdAt: -1 })
+      .skip(Math.max(0, (paging?.page || 0) - 1) * (paging?.limit || 0))
+      .limit(paging?.limit || 0)
       .exec();
 
     return visitors;
+  }
+
+  /** Inside vs capacity for every building in scope. */
+  async getOccupancy() {
+    const buildings = await this.buildingModel
+      .find({ isActive: true })
+      .select('name siteType settings')
+      .lean()
+      .exec();
+    const out: any[] = [];
+    for (const b of buildings as any[]) {
+      const settings = resolveSiteSettings(b.siteType, b.settings);
+      const inside = await this.visitRules.occupancy(b._id);
+      out.push({ buildingId: String(b._id), name: b.name, inside, maxInside: settings.maxInside || null });
+    }
+    return out;
+  }
+
+  /** Everyone currently inside — the fire roll-call. Grouped by building. */
+  async getInsideNow(buildingId?: string) {
+    const query: any = { status: VisitorStatus.INSIDE };
+    if (buildingId && Types.ObjectId.isValid(buildingId)) {
+      query.buildingId = new Types.ObjectId(buildingId);
+    }
+    const visitors = await this.visitorModel
+      .find(query)
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .sort({ buildingName: 1, entryTime: 1 })
+      .lean()
+      .exec();
+    const groups = new Map<string, any[]>();
+    for (const v of visitors as any[]) {
+      const key = v.buildingName || 'Unassigned';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(v);
+    }
+    return {
+      generatedAt: new Date().toISOString(),
+      total: visitors.length,
+      buildings: Array.from(groups.entries()).map(([name, list]) => ({
+        buildingName: name,
+        buildingId: list[0]?.buildingId ? String(list[0].buildingId) : undefined,
+        count: list.length,
+        visitors: list,
+      })),
+    };
+  }
+
+  /** CSV of the visitor log for a date range (tenant-scoped by the plugin). */
+  async exportVisitorsCsv(filters: {
+    from?: string;
+    to?: string;
+    buildingId?: string;
+    status?: string;
+  }) {
+    const query: any = {};
+    if (filters.from || filters.to) {
+      query.createdAt = {};
+      if (filters.from) query.createdAt.$gte = new Date(filters.from);
+      if (filters.to) {
+        const to = new Date(filters.to);
+        to.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = to;
+      }
+    }
+    if (filters.buildingId && Types.ObjectId.isValid(filters.buildingId)) {
+      query.buildingId = new Types.ObjectId(filters.buildingId);
+    }
+    if (filters.status) query.status = filters.status;
+    const rows = await this.visitorModel
+      .find(query)
+      .populate('userId', 'fullName phoneNumber flatNo')
+      .sort({ createdAt: -1 })
+      .limit(20000)
+      .lean()
+      .exec();
+    const esc = (v: any) => {
+      if (v === undefined || v === null) return '';
+      const str = v instanceof Date ? v.toISOString() : String(v);
+      return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+    };
+    const header = [
+      'Registered', 'Name', 'Phone', 'Type', 'Purpose', 'Status', 'Site type',
+      'Building', 'Host / Company', 'Host person', 'Floor', 'Unit / Flat',
+      'Approved by', 'Approved at', 'Entry', 'Entry gate', 'Exit', 'Exit gate',
+      'Auto closed', 'Vehicle', 'Guests', 'ID type', 'ID last digits', 'Source', 'Pass code',
+    ];
+    const lines = [header.join(',')];
+    for (const r of rows as any[]) {
+      lines.push([
+        r.createdAt, r.name, r.phoneNumber, r.type, r.purpose, r.status, r.siteType,
+        r.buildingName,
+        r.siteType === 'commercial' ? r.hostCompany : r.userId?.fullName,
+        r.siteType === 'commercial' ? r.hostPersonName : r.userId?.phoneNumber,
+        r.hostFloor, r.hostUnit || r.userId?.flatNo,
+        r.approvedBy ? `${r.approvedBy.kind}${r.approvedBy.name ? ' ' + r.approvedBy.name : ''}` : '',
+        r.approvedAt, r.entryTime, r.checkInGate, r.exitTime, r.checkOutGate,
+        r.autoClosed ? 'yes' : '', r.vehicleNumber, r.guestCount, r.idProofType, r.idProofLast4,
+        r.source, r.passCode,
+      ].map(esc).join(','));
+    }
+    return lines.join('\n');
   }
 
   async getVisitorStats() {
@@ -2295,154 +2566,465 @@ export class AdminService {
       .exec();
   }
 
-  async approveVisitor(id: string) {
+  /** Visits waiting on somebody: the guard queue, or the resident queue. */
+  async getPendingVisitors(filters?: {
+    approvalMode?: string;
+    buildingId?: string;
+  }) {
+    const query: any = { status: VisitorStatus.PENDING };
+    if (filters?.approvalMode) query.approvalMode = filters.approvalMode;
+    if (filters?.buildingId && Types.ObjectId.isValid(filters.buildingId)) {
+      query.buildingId = new Types.ObjectId(filters.buildingId);
+    }
+    return this.visitorModel
+      .find(query)
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .sort({ createdAt: -1 })
+      .exec();
+  }
+
+  /**
+   * Approve a pending visit. A guard may only do this where the site allows it
+   * (commercial sites by default); the approval is always attributed.
+   */
+  async approveVisitor(id: string, jwtUser?: any) {
     const visitor = await this.visitorModel.findById(id);
     if (!visitor) {
       throw new NotFoundException('Visitor not found');
     }
-    visitor.status = VisitorStatus.APPROVED;
+
+    const actor: Actor = this.passService.actorFromJwt(jwtUser);
+    const ctx = visitor.buildingId
+      ? await this.passService.contextFromBuildingId(visitor.buildingId)
+      : await this.passService.contextForUser(visitor.userId);
+
+    if (actor.kind === ActorKind.GUARD && !ctx.settings.guardCanApprove) {
+      throw new ForbiddenException(
+        'Guards cannot approve visitors at this site. The resident must approve.',
+      );
+    }
+    if (visitor.status !== VisitorStatus.PENDING) {
+      throw new BadRequestException(
+        visitor.status === VisitorStatus.REJECTED
+          ? 'This visit was rejected. Ask the visitor to register again.'
+          : `Visitor is already ${visitor.status}`,
+      );
+    }
+
+    const guardName =
+      actor.kind === ActorKind.GUARD && actor.id
+        ? (await this.guardModel.findById(actor.id).select('name').exec())?.name
+        : undefined;
+    if (guardName) actor.name = guardName;
+
+    await this.passService.approve(visitor, actor, ctx.settings);
+    const saved = await visitor.save();
+
+    if (this.notificationsService && visitor.userId) {
+      this.notificationsService
+        .sendNotificationToUser(
+          String(visitor.userId),
+          'Visitor Approved',
+          `${visitor.name} has been approved${
+            actor.kind === ActorKind.GUARD ? ' by security' : ''
+          }`,
+          { type: 'visitor', visitorId: id, action: 'approved' },
+        )
+        .catch((err) => console.error('Approve notification failed:', err));
+    }
+
+    return saved;
+  }
+
+  async rejectVisitor(id: string, jwtUser?: any, reason?: string) {
+    const visitor = await this.visitorModel.findById(id);
+    if (!visitor) {
+      throw new NotFoundException('Visitor not found');
+    }
+    const actor: Actor = this.passService.actorFromJwt(jwtUser);
+    this.passService.reject(visitor, actor, reason);
     return visitor.save();
   }
 
-  async rejectVisitor(id: string) {
-    const visitor = await this.visitorModel.findById(id);
-    if (!visitor) {
-      throw new NotFoundException('Visitor not found');
+  /**
+   * Commercial desk flow: the guard takes the visitor's details and lets them
+   * in, in a single action (create + approve + check in).
+   */
+  async guardCheckin(
+    dto: CreateVisitorDto & {
+      buildingId?: string;
+      hostCompany?: string;
+      hostPersonName?: string;
+      hostFloor?: string;
+      hostUnit?: string;
+      purpose?: string;
+      idProofType?: string;
+      idProofLast4?: string;
+      idProofPhoto?: string;
+      gate?: string;
+      checkInNow?: boolean;
+    },
+    jwtUser?: any,
+  ) {
+    const actor: Actor = this.passService.actorFromJwt(jwtUser);
+    const ctx = dto.buildingId
+      ? await this.passService.contextFromBuildingId(dto.buildingId)
+      : await this.passService.contextForUser((dto as any).userId);
+
+    if (actor.kind === ActorKind.GUARD && !ctx.settings.guardCanApprove) {
+      throw new ForbiddenException(
+        'Guards cannot approve visitors at this site. Create the visit and let the resident approve.',
+      );
     }
-    visitor.status = VisitorStatus.REJECTED;
-    return visitor.save();
+    // Catalogue rules (per-type host/ID/purpose, validity window, VIP, companions).
+    const resolved = this.visitRules.resolve(dto as any, ctx.siteType, ctx.settings, {
+      desk: true,
+      idProofEnforced: !!ctx.settings.requireIdProof,
+    });
+    if (ctx.siteType !== SiteType.COMMERCIAL && ctx.settings.requireIdProof && (!dto.idProofType || !dto.idProofLast4)) {
+      throw new BadRequestException(
+        'This site requires an ID proof type and number for every visitor',
+      );
+    }
+    // Watchlist: block refuses; warn needs the guard's explicit override.
+    const hit = await this.visitRules.watchlistFor({
+      organizationId: ctx.organizationId || null,
+      buildingId: ctx.buildingId || null,
+      phoneNumber: dto.phoneNumber,
+      idProofLast4: dto.idProofLast4,
+      vehicleNumber: (dto as any).vehicleNumber,
+      name: dto.name,
+    });
+    if (hit?.kind === 'block') {
+      throw new ForbiddenException(`Entry refused — watchlist: ${hit.reason}`);
+    }
+    if (hit?.kind === 'warn' && !(dto as any).overrideWarning) {
+      throw new ForbiddenException(
+        `WATCHLIST WARNING (${hit.matchedOn}): ${hit.reason}. Confirm the override to continue.`,
+      );
+    }
+    if (dto.checkInNow !== false) {
+      await this.visitRules.assertCapacity(ctx.settings, ctx.buildingId, resolved.guestCount);
+    }
+    if (ctx.settings.requireVisitorPhoto && this.s3Service.isConfigured && !dto.profilePhoto) {
+      throw new BadRequestException('This site requires a visitor photo');
+    }
+    for (const url of [dto.profilePhoto, dto.idProofPhoto]) {
+      if (url && !this.s3Service.isOwnUrl(url)) {
+        throw new BadRequestException('Photo URLs must come from the upload endpoint');
+      }
+    }
+
+    const visitor = new this.visitorModel({
+      name: dto.name,
+      phoneNumber: dto.phoneNumber,
+      type: resolved.type,
+      profilePhoto: dto.profilePhoto,
+      purpose: dto.purpose,
+      vehicleNumber: (dto as any).vehicleNumber,
+      guestCount: resolved.guestCount,
+      companions: resolved.companions,
+      reference: resolved.reference,
+      hostPhone: resolved.hostPhone,
+      priority: resolved.priority,
+      validFrom: resolved.validFrom,
+      validUntil: resolved.validUntil,
+      afterHours: resolved.afterHours,
+      consentAcceptedAt: resolved.consentAcceptedAt,
+      watchlistHit: hit ? { kind: hit.kind, reason: hit.reason } : undefined,
+      userId: (dto as any).userId
+        ? new Types.ObjectId((dto as any).userId)
+        : undefined,
+      organizationId: ctx.organizationId,
+      buildingId: ctx.buildingId,
+      buildingName: ctx.buildingName,
+      siteType: ctx.siteType,
+      hostCompany: dto.hostCompany,
+      hostPersonName: dto.hostPersonName,
+      hostFloor: dto.hostFloor,
+      hostUnit: dto.hostUnit,
+      idProofType: dto.idProofType,
+      idProofLast4: dto.idProofLast4,
+      idProofPhoto: dto.idProofPhoto,
+      source: VisitorSource.GUARD,
+      isPreApproved: false,
+    });
+
+    await this.passService.approve(visitor, actor, ctx.settings);
+
+    if (dto.checkInNow !== false) {
+      visitor.status = VisitorStatus.INSIDE;
+      visitor.entryTime = new Date();
+      visitor.checkInBy = actor;
+      visitor.checkInGate = dto.gate;
+    }
+
+    // Courier types can leave a parcel at the desk in the same step.
+    let parcel: any = null;
+    const parcelIn = (dto as any).parcel;
+    if (parcelIn && resolved.rule?.parcel && (parcelIn.recipientName || parcelIn.recipientCompany)) {
+      parcel = await new this.parcelModel({
+        trackingNumber: parcelIn.trackingNumber || resolved.reference || `DESK-${Date.now().toString(36).toUpperCase()}`,
+        recipientName: parcelIn.recipientName || parcelIn.recipientCompany,
+        recipientPhone: parcelIn.recipientPhone || (dto as any).hostPhone || '',
+        recipientCompany: parcelIn.recipientCompany || dto.hostCompany,
+        recipientFloor: parcelIn.recipientFloor || dto.hostFloor,
+        recipientUnit: parcelIn.recipientUnit || dto.hostUnit,
+        parcelType: parcelIn.parcelType,
+        storageLocation: parcelIn.storageLocation,
+        isPerishable: !!parcelIn.isPerishable || resolved.type === VisitorType.FOOD_DELIVERY,
+        notes: parcelIn.notes,
+        deliveryCompany: parcelIn.deliveryCompany,
+        deliveryPersonName: dto.name,
+        deliveryPersonPhone: dto.phoneNumber,
+        buildingId: ctx.buildingId,
+        buildingName: ctx.buildingName,
+        siteType: ctx.siteType,
+        organizationId: ctx.organizationId,
+        loggedBy: actor.name || actor.id,
+        status: ParcelStatus.PENDING,
+      }).save();
+      visitor.parcelId = parcel._id as Types.ObjectId;
+    }
+
+    const saved = await visitor.save();
+
+    if (this.notificationsService && saved.userId) {
+      this.notificationsService
+        .sendNotificationToUser(
+          String(saved.userId),
+          'Visitor Checked In',
+          `${saved.name} was checked in at the gate by security`,
+          {
+            type: 'visitor',
+            visitorId: saved._id.toString(),
+            action: 'entry',
+          },
+        )
+        .catch((err) => console.error('Check-in notification failed:', err));
+    }
+
+    return parcel ? { ...saved.toObject(), parcel } : saved;
   }
 
-  async recordVisitorEntry(id: string) {
+  /** Guard fallback when the camera will not read the pass. */
+  async lookupVisitorByPassCode(passCode: string) {
+    const visitor = await this.visitorModel
+      .findOne({
+        passCode: (passCode || '').trim().toUpperCase(),
+        status: { $in: VisitPassService.LIVE_STATUSES },
+      })
+      .populate('userId', 'fullName phoneNumber building flatNo')
+      .sort({ createdAt: -1 })
+      .exec();
+    if (!visitor) {
+      throw new NotFoundException('No live pass found with that code');
+    }
+    return visitor;
+  }
+
+  async recordVisitorEntry(id: string, jwtUser?: any, gate?: string) {
     const visitor = await this.visitorModel.findById(id);
     if (!visitor) {
       throw new NotFoundException('Visitor not found');
     }
 
-    // Check if the visitor pass was created more than 24 hours ago
-    const timeSinceCreation = Date.now() - (visitor as any).createdAt.getTime();
-    if (timeSinceCreation > 24 * 60 * 60 * 1000) {
-      throw new BadRequestException('Cannot record entry. This visitor pass has expired (created more than 24 hours ago).');
+    const ctx = visitor.buildingId
+      ? await this.passService.contextFromBuildingId(visitor.buildingId)
+      : await this.passService.contextForUser(visitor.userId);
+
+    this.passService.assertCanEnter(visitor, ctx.settings);
+    this.visitRules.assertWithinWindow(visitor);
+    if (visitor.watchlistHit?.kind === 'block') {
+      throw new ForbiddenException(`Entry refused — watchlist: ${visitor.watchlistHit.reason || ''}`);
     }
+    await this.visitRules.assertCapacity(ctx.settings, visitor.buildingId, visitor.guestCount || 1);
 
     visitor.status = VisitorStatus.INSIDE;
     visitor.entryTime = new Date();
+    // Re-entry on the same pass clears the previous exit.
+    visitor.exitTime = undefined;
+    visitor.checkOutGate = undefined;
+    visitor.autoClosed = false;
+    visitor.checkInBy = this.passService.actorFromJwt(jwtUser);
+    if (gate) visitor.checkInGate = gate;
     return visitor.save();
   }
 
-  async recordVisitorExit(id: string) {
+  async recordVisitorExit(id: string, gate?: string) {
     const visitor = await this.visitorModel.findById(id);
     if (!visitor) {
       throw new NotFoundException('Visitor not found');
     }
+    if (visitor.status !== VisitorStatus.INSIDE) {
+      throw new BadRequestException(
+        `Cannot record exit: visitor is ${visitor.status}, not Inside.`,
+      );
+    }
     visitor.status = VisitorStatus.LEFT;
     visitor.exitTime = new Date();
+    if (gate) visitor.checkOutGate = gate;
     return visitor.save();
   }
 
   // QR Code Verification
-  async createVisitor(createDto: CreateVisitorDto & { userId?: string }) {
-    // Admin/Guard can create visitors
-    // Find first user as default if userId not provided
-    let userId: Types.ObjectId;
+  async createVisitor(
+    createDto: CreateVisitorDto & {
+      userId?: string;
+      buildingId?: string;
+      purpose?: string;
+      hostCompany?: string;
+      hostPersonName?: string;
+      hostFloor?: string;
+      hostUnit?: string;
+      idProofType?: string;
+      idProofLast4?: string;
+    },
+    jwtUser?: any,
+  ) {
+    // Admin/Guard can create visitors. Residential visits need a host resident;
+    // commercial visits are hostless and are approved at the desk.
+    const ctx = createDto.buildingId
+      ? await this.passService.contextFromBuildingId(createDto.buildingId)
+      : createDto.userId
+        ? await this.passService.contextForUser(createDto.userId)
+        : await this.passService.contextForUser(null);
+
+    let userId: Types.ObjectId | undefined;
     if (createDto.userId) {
       userId = new Types.ObjectId(createDto.userId);
-    } else {
-      const firstUser = await this.userModel.findOne().exec();
-      if (!firstUser) {
-        throw new NotFoundException(
-          'No users found. Please create a user first.',
-        );
-      }
-      userId = firstUser._id;
+      const host = await this.userModel.findById(userId).select('_id').lean().exec();
+      if (!host) throw new NotFoundException('Host resident not found');
+    } else if (ctx.siteType !== SiteType.COMMERCIAL && !createDto.isPreApproved) {
+      // A residential visit needs a host to approve it; never guess one.
+      throw new BadRequestException(
+        'Pick the host resident (userId) for a residential visit, or a commercial building.',
+      );
     }
 
-    // Generate QR code data
-    const qrData = JSON.stringify({
-      visitorId: new Types.ObjectId().toString(),
-      userId: userId.toString(),
-      timestamp: Date.now(),
-    });
+    const approvalMode = this.passService.approvalModeFor(
+      ctx.settings,
+      !!userId,
+      !!createDto.isPreApproved,
+    );
 
     const visitor = new this.visitorModel({
       name: createDto.name,
       type: createDto.type,
       phoneNumber: createDto.phoneNumber,
       profilePhoto: createDto.profilePhoto,
+      purpose: createDto.purpose,
       isPreApproved: createDto.isPreApproved,
       expectedDate: createDto.expectedDate
         ? new Date(createDto.expectedDate)
         : undefined,
       vehicleNumber: (createDto as any).vehicleNumber,
       guestCount: (createDto as any).guestCount ?? 1,
-      userId: userId,
+      userId,
+      organizationId: ctx.organizationId,
+      buildingId: ctx.buildingId,
+      buildingName: ctx.buildingName,
+      siteType: ctx.siteType,
+      hostCompany: createDto.hostCompany,
+      hostPersonName: createDto.hostPersonName,
+      hostFloor: createDto.hostFloor,
+      hostUnit: createDto.hostUnit,
+      idProofType: createDto.idProofType,
+      idProofLast4: createDto.idProofLast4,
+      source: VisitorSource.ADMIN,
+      approvalMode,
       status: createDto.isPreApproved
         ? VisitorStatus.APPROVED
         : VisitorStatus.PENDING,
-      qrCode: qrData,
     });
 
-    const savedVisitor = await visitor.save();
+    if (createDto.isPreApproved) {
+      visitor.approvedBy = this.passService.actorFromJwt(jwtUser);
+      visitor.approvedAt = new Date();
+    }
+    await this.passService.issuePass(visitor, ctx.settings);
 
-    // Update QR code with actual visitor ID
-    savedVisitor.qrCode = JSON.stringify({
-      visitorId: savedVisitor._id.toString(),
-      userId: userId.toString(),
-      timestamp: Date.now(),
-    });
-
-    return savedVisitor.save();
+    return visitor.save();
   }
 
   async verifyVisitorQR(qrData: string) {
     try {
-      console.log('🔍 Verifying QR code:', qrData);
-      const data = JSON.parse(qrData);
-      console.log('🔍 Parsed QR data:', data);
-
-      if (!data.visitorId) {
-        throw new UnauthorizedException('Invalid QR code: missing visitorId');
+      const raw = (qrData || '').trim();
+      if (!raw) {
+        throw new UnauthorizedException('Empty QR code');
       }
 
-      const visitor = await this.visitorModel
-        .findById(data.visitorId)
-        .populate('userId', 'fullName phoneNumber building flatNo')
-        .exec();
+      let visitor: VisitorDocument | null = null;
+
+      // v2 payload, legacy v1 payload, or a URL/bare string carrying the token.
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+
+      if (parsed && parsed.t !== undefined) {
+        // Never pass QR content into a query unchecked (operator injection).
+        if (typeof parsed.t !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(parsed.t)) {
+          throw new UnauthorizedException('Invalid QR code');
+        }
+        visitor = await this.visitorModel
+          .findOne({ passToken: parsed.t })
+          .populate('userId', 'fullName phoneNumber building flatNo')
+          .exec();
+      } else if (parsed?.visitorId) {
+        if (!Types.ObjectId.isValid(parsed.visitorId)) {
+          throw new UnauthorizedException('Invalid QR code');
+        }
+        visitor = await this.visitorModel
+          .findById(parsed.visitorId)
+          .populate('userId', 'fullName phoneNumber building flatNo')
+          .exec();
+      } else {
+        // A pass link (…/visit/pass/<token>) or a typed 6-character pass code.
+        const tail = (raw.split('/').pop() || raw).trim();
+        if (!/^[A-Za-z0-9_-]{4,64}$/.test(tail)) {
+          throw new UnauthorizedException('Invalid QR code');
+        }
+        visitor = await this.visitorModel
+          .findOne({
+            $or: [{ passToken: tail }, { passCode: tail.toUpperCase() }],
+            status: { $in: VisitPassService.LIVE_STATUSES },
+          })
+          .populate('userId', 'fullName phoneNumber building flatNo')
+          .sort({ createdAt: -1 })
+          .exec();
+      }
 
       if (!visitor) {
         throw new NotFoundException('Visitor not found');
       }
 
-      // Check if QR code is valid (not expired)
-      // Default validity: 24 hours, configurable via environment variable
-      const QR_VALIDITY_HOURS = parseInt(
-        this.configService.get<string>('QR_VALIDITY_HOURS', '24'),
-        10,
-      );
-      const QR_VALIDITY_MS = QR_VALIDITY_HOURS * 60 * 60 * 1000;
+      const ctx = visitor.buildingId
+        ? await this.passService.contextFromBuildingId(visitor.buildingId)
+        : await this.passService.contextForUser(visitor.userId);
 
-      const qrTimestamp = data.timestamp;
-      if (!qrTimestamp) {
-        throw new UnauthorizedException('Invalid QR code: missing timestamp');
-      }
+      // Passes issued before dual-mode support carry no expiresAt; fall back to
+      // the QR_VALIDITY_HOURS behaviour those codes were minted under.
+      const validityHours =
+        ctx.settings.passValidityHours ||
+        parseInt(this.configService.get<string>('QR_VALIDITY_HOURS', '24'), 10);
 
-      const now = Date.now();
-      const timeElapsed = now - qrTimestamp;
-      const timeRemaining = QR_VALIDITY_MS - timeElapsed;
-
-      if (timeElapsed > QR_VALIDITY_MS) {
-        const hoursExpired = Math.floor(timeElapsed / (60 * 60 * 1000));
+      const expired = this.passService.isExpired(visitor, ctx.settings);
+      // An expired pass still has to be scannable OUT for someone who is inside.
+      if (expired && visitor.status !== VisitorStatus.INSIDE) {
         throw new UnauthorizedException(
-          `QR code expired ${hoursExpired} hour(s) ago. Validity: ${QR_VALIDITY_HOURS} hours.`,
+          `This pass has expired. Validity: ${validityHours} hours.`,
         );
       }
 
-      // Calculate expiration time and remaining validity
-      const expirationTime = qrTimestamp + QR_VALIDITY_MS;
-      const hoursRemaining = Math.floor(timeRemaining / (60 * 60 * 1000));
-      const minutesRemaining = Math.floor(
-        (timeRemaining % (60 * 60 * 1000)) / (60 * 1000),
-      );
+      const issuedAt =
+        visitor.approvedAt || (visitor as any).createdAt || new Date();
+      const expiresAt =
+        visitor.expiresAt ||
+        new Date(new Date(issuedAt).getTime() + validityHours * 3600_000);
+      const timeRemaining = expiresAt.getTime() - Date.now();
 
       return {
         visitor: {
@@ -2450,17 +3032,57 @@ export class AdminService {
           name: visitor.name,
           type: visitor.type,
           status: visitor.status,
+          approvalMode: visitor.approvalMode,
           phoneNumber: visitor.phoneNumber,
           isPreApproved: visitor.isPreApproved,
+          profilePhoto: visitor.profilePhoto,
+          purpose: visitor.purpose,
+          siteType: visitor.siteType || ctx.siteType,
+          buildingName: visitor.buildingName || ctx.buildingName,
+          hostCompany: visitor.hostCompany,
+          hostPersonName: visitor.hostPersonName,
+          hostFloor: visitor.hostFloor,
+          hostUnit: visitor.hostUnit,
+          passCode: visitor.passCode,
           userId: visitor.userId,
+          priority: visitor.priority,
+          validFrom: visitor.validFrom,
+          validUntil: visitor.validUntil,
+          reference: visitor.reference,
+          hostPhone: visitor.hostPhone,
+          companions: visitor.companions,
+          guestCount: visitor.guestCount,
+          afterHours: visitor.afterHours,
+          watchlistHit: visitor.watchlistHit,
+          consentAcceptedAt: visitor.consentAcceptedAt,
         },
-        isValid: true,
+        // Valid = usable for entry right now.
+        isValid:
+          !expired &&
+          (visitor.status === VisitorStatus.APPROVED ||
+            visitor.status === VisitorStatus.INSIDE),
+        expired,
+        // The guard app decides which action to offer.
+        canApprove:
+          visitor.status === VisitorStatus.PENDING &&
+          ctx.settings.guardCanApprove,
+        canCheckIn:
+          !expired &&
+          (visitor.status === VisitorStatus.APPROVED ||
+            visitor.status === VisitorStatus.LEFT),
+        canCheckOut: visitor.status === VisitorStatus.INSIDE,
+        occupancy: ctx.settings.maxInside
+          ? { inside: await this.visitRules.occupancy(visitor.buildingId), max: ctx.settings.maxInside }
+          : undefined,
         validity: {
-          createdAt: new Date(qrTimestamp).toISOString(),
-          expiresAt: new Date(expirationTime).toISOString(),
-          hoursRemaining,
-          minutesRemaining,
-          validityHours: QR_VALIDITY_HOURS,
+          createdAt: new Date(issuedAt).toISOString(),
+          expiresAt: expiresAt.toISOString(),
+          hoursRemaining: Math.max(0, Math.floor(timeRemaining / 3600_000)),
+          minutesRemaining: Math.max(
+            0,
+            Math.floor((timeRemaining % 3600_000) / 60_000),
+          ),
+          validityHours,
         },
       };
     } catch (error) {

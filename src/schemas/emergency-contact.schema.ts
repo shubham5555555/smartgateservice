@@ -15,6 +15,10 @@ export enum ContactType {
 
 @Schema({ timestamps: true })
 export class EmergencyContact {
+  /** Tenant (builder / property company) this record belongs to. */
+  @Prop({ type: Types.ObjectId, ref: 'Organization', index: true })
+  organizationId?: Types.ObjectId;
+
   @Prop({ required: true })
   name: string;
 

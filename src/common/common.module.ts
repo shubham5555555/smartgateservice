@@ -1,6 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { S3Service } from './s3.service';
 import { EmailService } from './email.service';
 import { EscalationService } from './escalation.service';
@@ -14,6 +15,9 @@ import { Reminder, ReminderSchema } from '../schemas/reminder.schema';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    // Generous global default; the public gate-QR routes tighten it per-route
+    // with @Throttle and opt into ThrottlerGuard explicitly.
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 300 }]),
     MongooseModule.forFeature([
       { name: Complaint.name, schema: ComplaintSchema },
       { name: Reminder.name, schema: ReminderSchema },

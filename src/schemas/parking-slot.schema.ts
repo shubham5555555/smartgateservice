@@ -21,6 +21,10 @@ export enum ParkingType {
 
 @Schema({ timestamps: true })
 export class ParkingSlot {
+  /** Tenant (builder / property company) this record belongs to. */
+  @Prop({ type: Types.ObjectId, ref: 'Organization', index: true })
+  organizationId?: Types.ObjectId;
+
   @Prop({ type: Types.ObjectId, ref: 'Building' })
   building?: Types.ObjectId;
 

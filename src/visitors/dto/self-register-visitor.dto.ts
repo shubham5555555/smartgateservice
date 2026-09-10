@@ -1,69 +1,85 @@
+import { Type } from 'class-transformer';
+import { CompanionDto } from '../../visits/dto/public-visit.dto';
 import {
-  IsString,
-  IsOptional,
-  IsEnum,
+  IsArray,
   IsBoolean,
   IsDateString,
+  IsEnum,
+  IsInt,
+  IsMongoId,
+  IsOptional,
+  IsString,
+  Length,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { VisitorType } from '../../schemas/visitor.schema';
 
+/**
+ * Generic (non-poster) self-registration. Residential buildings need a host
+ * resident (flat number or e-mail); commercial buildings need only whom the
+ * visitor is meeting — no e-mail, the guard approves at the desk.
+ */
 export class SelfRegisterVisitorDto {
-  @ApiProperty({
-    description: 'Name of the visitor',
-    example: 'John Doe',
-  })
+  @ApiProperty({ example: 'John Doe' })
   @IsString()
+  @Length(2, 80)
   name: string;
 
-  @ApiProperty({
-    description: 'Phone number of the visitor',
-    example: '+1234567890',
-    required: false,
-  })
+  @ApiPropertyOptional({ example: '+919876543210' })
   @IsOptional()
   @IsString()
+  @MaxLength(20)
   phoneNumber?: string;
 
-  @ApiProperty({
-    description: 'Type of visitor',
-    enum: VisitorType,
-    example: VisitorType.GUEST,
-  })
+  @ApiPropertyOptional({ enum: VisitorType })
+  @IsOptional()
   @IsEnum(VisitorType)
-  type: VisitorType;
+  type?: VisitorType;
 
-  @ApiProperty({
-    description: 'Resident email or ID to visit',
-    example: 'resident@example.com',
-  })
-  @IsString()
-  residentEmail: string;
+  @ApiPropertyOptional({ description: 'Building being visited (preferred)' })
+  @IsOptional()
+  @IsMongoId()
+  buildingId?: string;
 
-  @ApiProperty({
-    description: 'Purpose of visit',
-    example: 'Meeting',
-    required: false,
-  })
+  // ---- residential host ----
+  @ApiPropertyOptional({ description: 'Host resident e-mail (residential, alternative to flatNumber)' })
   @IsOptional()
   @IsString()
-  purpose?: string;
+  @MaxLength(120)
+  residentEmail?: string;
 
-  @ApiProperty({
-    description: 'Expected date of visit',
-    example: '2024-12-25',
-    required: false,
-  })
-  @IsOptional()
-  @IsDateString()
-  expectedDate?: string;
-
-  @ApiProperty({
-    description: 'Expected time of visit',
-    example: '14:00',
-    required: false,
-  })
+  @ApiPropertyOptional({ description: 'Flat / unit of the host resident (residential)' })
   @IsOptional()
   @IsString()
-  expectedTime?: string;
+  @MaxLength(20)
+  flatNumber?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20) block?: string;
+
+  // ---- commercial "whom to meet" ----
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(120) hostCompany?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(80) hostPersonName?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20) hostFloor?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20) hostUnit?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(200) purpose?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20) vehicleNumber?: string;
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(50) guestCount?: number;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(40) idProofType?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @Length(3, 6) @Matches(/^[A-Za-z0-9]+$/) idProofLast4?: string;
+
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(60) reference?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(20) hostPhone?: string;
+  @ApiPropertyOptional() @IsOptional() @IsDateString() validFrom?: string;
+  @ApiPropertyOptional() @IsOptional() @IsDateString() validUntil?: string;
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() consentAccepted?: boolean;
+  @ApiPropertyOptional() @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CompanionDto) companions?: CompanionDto[];
+
+  @ApiPropertyOptional({ example: '2024-12-25' }) @IsOptional() @IsDateString() expectedDate?: string;
+  @ApiPropertyOptional({ example: '14:00' }) @IsOptional() @IsString() @MaxLength(5) expectedTime?: string;
 }

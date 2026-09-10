@@ -43,6 +43,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       phoneNumber: payload.phoneNumber,
       email: payload.email ? String(payload.email) : undefined,
       purpose: payload.purpose ? String(payload.purpose) : undefined,
+      // Carried through so callers can tell a guard/admin token from a
+      // resident one (e.g. attributing who approved a visitor).
+      role: payload.role ? String(payload.role) : undefined,
+      guardId: payload.guardId ? String(payload.guardId) : undefined,
+      sub: payload.sub ? String(payload.sub) : undefined,
+      // Tenant claims (multi-builder): which organization / sites the token is confined to.
+      name: payload.name ? String(payload.name) : undefined,
+      organizationId: payload.organizationId ? String(payload.organizationId) : undefined,
+      buildingIds: Array.isArray(payload.buildingIds)
+        ? payload.buildingIds.map((b: any) => String(b))
+        : [],
     };
   }
 }
