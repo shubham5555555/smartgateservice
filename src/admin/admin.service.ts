@@ -18,7 +18,6 @@ import {
 import { SiteType } from '../schemas/site-settings';
 import { VisitPassService } from '../visits/visit-pass.service';
 import { VisitRulesService } from '../visits/visit-rules.service';
-import { ParcelStatus } from '../schemas/parcel.schema';
 import {
   Maintenance,
   MaintenanceDocument,
@@ -48,7 +47,7 @@ import {
   AccessRequestStatus,
 } from '../schemas/access-request.schema';
 import { Vehicle, VehicleDocument } from '../schemas/vehicle.schema';
-import { Parcel, ParcelDocument } from '../schemas/parcel.schema';
+import { Parcel, ParcelDocument, ParcelStatus } from '../schemas/parcel.schema';
 import { DocumentFile, DocumentDocument } from '../schemas/document.schema';
 import {
   EmergencyContact,
@@ -2169,7 +2168,7 @@ export class AdminService {
       buildingId: site?._id,
       buildingName: site?.name,
       siteType: site?.siteType,
-      status: 'Pending',
+      status: ParcelStatus.PENDING,
       loggedBy: dto.loggedBy || TenantContext.current().name || 'Desk',
     });
     return parcel.save();
