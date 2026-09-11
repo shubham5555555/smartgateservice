@@ -47,3 +47,6 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
+
+# generated test sheet contains live gate tokens and pass codes
+TEST_CREDENTIALS.md

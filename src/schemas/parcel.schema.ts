@@ -73,7 +73,7 @@ export class Parcel {
   @Prop({ required: true })
   recipientName: string;
 
-  @Prop({ required: true })
+  @Prop({ required: false, default: '' })
   recipientPhone: string;
 
   @Prop()

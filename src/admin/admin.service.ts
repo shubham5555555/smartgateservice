@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  UnauthorizedException,
-  NotFoundException,
-  BadRequestException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { JwtService } from '@nestjs/jwt';
@@ -103,6 +97,8 @@ import { resolveSiteSettings } from '../schemas/site-settings';
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Visitor.name) private visitorModel: Model<VisitorDocument>,
@@ -2766,7 +2762,8 @@ export class AdminService {
       parcel = await new this.parcelModel({
         trackingNumber: parcelIn.trackingNumber || resolved.reference || `DESK-${Date.now().toString(36).toUpperCase()}`,
         recipientName: parcelIn.recipientName || parcelIn.recipientCompany,
-        recipientPhone: parcelIn.recipientPhone || (dto as any).hostPhone || '',
+        // The desk rarely knows the recipient's phone; fall back to the host's, then the courier's, so the record is never rejected.
+        recipientPhone: parcelIn.recipientPhone || (dto as any).hostPhone || dto.phoneNumber || 'n/a',
         recipientCompany: parcelIn.recipientCompany || dto.hostCompany,
         recipientFloor: parcelIn.recipientFloor || dto.hostFloor,
         recipientUnit: parcelIn.recipientUnit || dto.hostUnit,
@@ -2783,8 +2780,12 @@ export class AdminService {
         organizationId: ctx.organizationId,
         loggedBy: actor.name || actor.id,
         status: ParcelStatus.PENDING,
-      }).save();
-      visitor.parcelId = parcel._id as Types.ObjectId;
+      }).save().catch((err: any) => {
+        // A parcel record must never cost the desk the visit itself.
+        this.logger.warn(`Courier parcel not logged for ${dto.name}: ${err?.message}`);
+        return null;
+      });
+      if (parcel) visitor.parcelId = parcel._id as Types.ObjectId;
     }
 
     const saved = await visitor.save();
