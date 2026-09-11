@@ -36,6 +36,7 @@ import {
   Complaint,
   ComplaintDocument,
   ComplaintStatus,
+  ComplaintPriority,
 } from '../schemas/complaint.schema';
 import { Notice, NoticeDocument, NoticeStatus } from '../schemas/notice.schema';
 import {
@@ -44,7 +45,7 @@ import {
   AccessRequestStatus,
 } from '../schemas/access-request.schema';
 import { Vehicle, VehicleDocument } from '../schemas/vehicle.schema';
-import { Parcel, ParcelDocument } from '../schemas/parcel.schema';
+import { Parcel, ParcelDocument, ParcelStatus } from '../schemas/parcel.schema';
 import { DocumentFile, DocumentDocument } from '../schemas/document.schema';
 import {
   EmergencyContact,
@@ -522,7 +523,7 @@ export class AdminService {
 
   async getPriorityActions() {
     const highPriorityComplaints = await this.complaintModel
-      .find({ priority: 'High', status: { $ne: ComplaintStatus.RESOLVED } })
+      .find({ priority: ComplaintPriority.HIGH, status: { $ne: ComplaintStatus.RESOLVED } })
       .limit(5)
       .exec();
 
@@ -1998,16 +1999,16 @@ export class AdminService {
   async getParcelsStats() {
     const [total, pending, collected, returned] = await Promise.all([
       this.parcelModel.countDocuments(),
-      this.parcelModel.countDocuments({ status: 'Pending' }),
-      this.parcelModel.countDocuments({ status: 'Collected' }),
-      this.parcelModel.countDocuments({ status: 'Returned' }),
+      this.parcelModel.countDocuments({ status: ParcelStatus.PENDING }),
+      this.parcelModel.countDocuments({ status: ParcelStatus.COLLECTED }),
+      this.parcelModel.countDocuments({ status: ParcelStatus.RETURNED }),
     ]);
     return { total, pending, collected, returned };
   }
 
   async getPendingParcels() {
     return this.parcelModel
-      .find({ status: 'Pending' })
+      .find({ status: ParcelStatus.PENDING })
       .populate('userId', 'fullName building flatNo phoneNumber')
       .sort({ createdAt: -1 })
       .exec();
@@ -2027,7 +2028,7 @@ export class AdminService {
   async adminCreateParcel(dto: any) {
     const parcel = new this.parcelModel({
       ...dto,
-      status: 'Pending',
+      status: ParcelStatus.PENDING,
     });
     return parcel.save();
   }
