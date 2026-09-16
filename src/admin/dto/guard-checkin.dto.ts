@@ -125,6 +125,16 @@ export class GuardCheckinDto {
   @IsBoolean()
   isPreApproved?: boolean;
 
+  @ApiPropertyOptional({ description: 'Registered office tenant being visited' })
+  @IsOptional()
+  @IsMongoId({ message: 'Pick the company from the list' })
+  companyId?: string;
+
+  @ApiPropertyOptional({ description: 'The employee being visited' })
+  @IsOptional()
+  @IsMongoId({ message: 'Pick the person from the list' })
+  hostUserId?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsDateString()

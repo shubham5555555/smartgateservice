@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import { AccountType, CompanyRole } from './company.schema';
 
 export type UserDocument = User & Document;
 
@@ -101,13 +102,70 @@ export class User {
   fcmToken?: string; // Firebase Cloud Messaging token for push notifications
 
   @Prop()
-  parentUserId?: string; // For family members and tenants linking to owner
+  parentUserId?: string; // Who created this account (owner for a sub-user, HR for an employee)
 
   @Prop()
   relation?: string; // Relationship to the owner (e.g. Son, Daughter, Renter)
+
+  // ---- Company accounts (commercial offices) ----------------------------
+  // Everything below is empty on a resident. `accountType` is what the apps
+  // branch on; it defaults to `resident` so every existing row keeps working.
+
+  @Prop({ enum: AccountType, default: AccountType.RESIDENT, index: true })
+  accountType: AccountType;
+
+  /** The office tenant this person belongs to. */
+  @Prop({ type: Types.ObjectId, ref: 'Company', index: true })
+  companyId?: Types.ObjectId;
+
+  @Prop({ enum: CompanyRole })
+  companyRole?: CompanyRole;
+
+  @Prop()
+  employeeCode?: string;
+
+  @Prop()
+  designation?: string;
+
+  @Prop()
+  department?: string;
+
+  /** Overrides the company's floor/unit for this person. */
+  @Prop()
+  workFloor?: string;
+
+  @Prop()
+  workUnit?: string;
+
+  /** Set by an admin/HR-issued password; cleared once the person changes it. */
+  @Prop({ default: false })
+  mustChangePassword?: boolean;
+
+  // ---- Employee gate pass ----------------------------------------------
+  // Same primitive as a visitor pass, but it does not expire: it is valid
+  // while the account is active and the pass has not been revoked.
+
+  @Prop({ unique: true, sparse: true })
+  passToken?: string;
+
+  @Prop({ index: true })
+  passCode?: string;
+
+  @Prop()
+  passIssuedAt?: Date;
+
+  @Prop()
+  passRevokedAt?: Date;
+
+  @Prop({ default: true })
+  isActive?: boolean;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+
+// Team listings and the guard's employee lookup.
+UserSchema.index({ companyId: 1, companyRole: 1, isActive: 1 });
+UserSchema.index({ accountType: 1, buildingId: 1 });
 
 // Add a pre-hook to prevent "pending" from being cast to ObjectId
 // This hook intercepts ALL find operations and cleans invalid _id values

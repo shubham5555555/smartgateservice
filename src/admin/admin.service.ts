@@ -18,6 +18,8 @@ import {
 import { SiteType } from '../schemas/site-settings';
 import { VisitPassService } from '../visits/visit-pass.service';
 import { VisitRulesService } from '../visits/visit-rules.service';
+import { EmployeeAccessService } from '../company/employee-access.service';
+import { Company, CompanyDocument } from '../schemas/company.schema';
 import {
   Maintenance,
   MaintenanceDocument,
@@ -132,6 +134,7 @@ export class AdminService {
     private amenityModel: Model<AmenityDocument>,
     @InjectModel(Contact.name) private contactModel: Model<ContactDocument>,
     @InjectModel(Building.name) private buildingModel: Model<BuildingDocument>,
+    @InjectModel(Company.name) private companyModel: Model<CompanyDocument>,
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
@@ -141,6 +144,7 @@ export class AdminService {
     private s3Service: S3Service,
     private tenantService: TenantService,
     private visitRules: VisitRulesService,
+    private employeeAccess: EmployeeAccessService,
     @Inject(forwardRef(() => NotificationsService))
     private notificationsService?: NotificationsService,
   ) { }
@@ -2711,12 +2715,23 @@ export class AdminService {
       }
     }
 
+    // A picked office tenant (and person) becomes a real link; typing a
+    // company that is not registered still works and stays free text.
+    const desk = await this.resolveCompanyForDesk(
+      ctx.buildingId,
+      (dto as any).companyId,
+      (dto as any).hostUserId,
+      dto.hostCompany,
+    );
+
     const visitor = new this.visitorModel({
       name: dto.name,
       phoneNumber: dto.phoneNumber,
       type: resolved.type,
       profilePhoto: dto.profilePhoto,
       purpose: dto.purpose,
+      companyId: desk.company?._id,
+      hostUserId: desk.host?._id,
       vehicleNumber: (dto as any).vehicleNumber,
       guestCount: resolved.guestCount,
       companions: resolved.companions,
@@ -2745,6 +2760,13 @@ export class AdminService {
       source: VisitorSource.GUARD,
       isPreApproved: false,
     });
+    if (desk.company) {
+      visitor.hostCompany = desk.company.name;
+      visitor.hostFloor = dto.hostFloor || desk.host?.workFloor || desk.company.floor;
+      visitor.hostUnit =
+        dto.hostUnit || desk.host?.workUnit || (desk.company.units || [])[0];
+    }
+    if (desk.host) visitor.hostPersonName = desk.host.fullName;
 
     await this.passService.approve(visitor, actor, ctx.settings);
 
@@ -2808,6 +2830,43 @@ export class AdminService {
     return parcel ? { ...saved.toObject(), parcel } : saved;
   }
 
+  /**
+   * Desk helper: turn a picked company id (or a typed company name that
+   * happens to match one) into the company and, optionally, the person.
+   */
+  private async resolveCompanyForDesk(
+    buildingId: Types.ObjectId | undefined,
+    companyId?: string,
+    hostUserId?: string,
+    typedName?: string,
+  ): Promise<{ company: any | null; host: any | null }> {
+    if (!buildingId) return { company: null, host: null };
+    let company: any = null;
+    if (companyId && Types.ObjectId.isValid(companyId)) {
+      company = await this.companyModel
+        .findOne({ _id: new Types.ObjectId(companyId), buildingId })
+        .exec();
+    }
+    if (!company && typedName?.trim()) {
+      company = await this.companyModel
+        .findOne({
+          buildingId,
+          normalizedName: typedName.trim().toLowerCase(),
+          isActive: { $ne: false },
+        })
+        .exec();
+    }
+    if (!company) return { company: null, host: null };
+
+    let host: any = null;
+    if (hostUserId && Types.ObjectId.isValid(hostUserId)) {
+      host = await this.userModel
+        .findOne({ _id: new Types.ObjectId(hostUserId), companyId: company._id })
+        .exec();
+    }
+    return { company, host };
+  }
+
   /** Guard fallback when the camera will not read the pass. */
   async lookupVisitorByPassCode(passCode: string) {
     const visitor = await this.visitorModel
@@ -2819,9 +2878,36 @@ export class AdminService {
       .sort({ createdAt: -1 })
       .exec();
     if (!visitor) {
+      const employee = await this.employeeAccess.findByCode(passCode);
+      if (employee) return this.employeeAccess.card(employee);
       throw new NotFoundException('No live pass found with that code');
     }
     return visitor;
+  }
+
+  // ---- Employees at the gate -------------------------------------------
+
+  /** Guard scans an employee in. */
+  async recordEmployeeEntry(userId: string, jwtUser?: any, gate?: string) {
+    return this.employeeAccess.checkIn(
+      userId,
+      this.passService.actorFromJwt(jwtUser),
+      gate,
+    );
+  }
+
+  /** Guard scans an employee out. */
+  async recordEmployeeExit(userId: string, jwtUser?: any, gate?: string) {
+    return this.employeeAccess.checkOut(
+      userId,
+      this.passService.actorFromJwt(jwtUser),
+      gate,
+    );
+  }
+
+  /** The employee half of the roll-call. */
+  async getEmployeesInside(buildingId?: string) {
+    return this.employeeAccess.insideBuilding(buildingId);
   }
 
   async recordVisitorEntry(id: string, jwtUser?: any, gate?: string) {
@@ -2909,12 +2995,21 @@ export class AdminService {
       !!createDto.isPreApproved,
     );
 
+    const adminDesk = await this.resolveCompanyForDesk(
+      ctx.buildingId,
+      (createDto as any).companyId,
+      (createDto as any).hostUserId,
+      createDto.hostCompany,
+    );
+
     const visitor = new this.visitorModel({
       name: createDto.name,
       type: createDto.type,
       phoneNumber: createDto.phoneNumber,
       profilePhoto: createDto.profilePhoto,
       purpose: createDto.purpose,
+      companyId: adminDesk.company?._id,
+      hostUserId: adminDesk.host?._id,
       isPreApproved: createDto.isPreApproved,
       expectedDate: createDto.expectedDate
         ? new Date(createDto.expectedDate)
@@ -2926,8 +3021,8 @@ export class AdminService {
       buildingId: ctx.buildingId,
       buildingName: ctx.buildingName,
       siteType: ctx.siteType,
-      hostCompany: createDto.hostCompany,
-      hostPersonName: createDto.hostPersonName,
+      hostCompany: adminDesk.company?.name || createDto.hostCompany,
+      hostPersonName: adminDesk.host?.fullName || createDto.hostPersonName,
       hostFloor: createDto.hostFloor,
       hostUnit: createDto.hostUnit,
       idProofType: createDto.idProofType,
@@ -2965,6 +3060,17 @@ export class AdminService {
         parsed = null;
       }
 
+      // An employee pass carries `k: 'emp'`; a payload without `k` is a
+      // visitor pass, which is every pass issued before company accounts.
+      if (EmployeeAccessService.isEmployeePayload(parsed)) {
+        if (typeof parsed.t !== 'string') {
+          throw new UnauthorizedException('Invalid QR code');
+        }
+        const employee = await this.employeeAccess.findByToken(parsed.t);
+        if (!employee) throw new NotFoundException('Pass not found');
+        return this.employeeAccess.card(employee);
+      }
+
       if (parsed && parsed.t !== undefined) {
         // Never pass QR content into a query unchecked (operator injection).
         if (typeof parsed.t !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(parsed.t)) {
@@ -2996,6 +3102,14 @@ export class AdminService {
           .populate('userId', 'fullName phoneNumber building flatNo')
           .sort({ createdAt: -1 })
           .exec();
+
+        if (!visitor) {
+          // The same box takes an employee's pass link or short code.
+          const employee =
+            (await this.employeeAccess.findByToken(tail)) ||
+            (await this.employeeAccess.findByCode(tail));
+          if (employee) return this.employeeAccess.card(employee);
+        }
       }
 
       if (!visitor) {

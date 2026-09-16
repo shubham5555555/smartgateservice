@@ -6,7 +6,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import {
   ApprovalMode,
   Visitor,
@@ -18,6 +18,7 @@ import {
 import { Building, BuildingDocument } from '../schemas/building.schema';
 import { Organization, OrganizationDocument } from '../schemas/organization.schema';
 import { User, UserDocument } from '../schemas/user.schema';
+import { Company, CompanyDocument } from '../schemas/company.schema';
 import { SiteSettings, SiteType } from '../schemas/site-settings';
 import { NotificationsService } from '../notifications/notifications.service';
 import { VisitPassService } from './visit-pass.service';
@@ -35,6 +36,7 @@ export class PublicVisitsService {
     @InjectModel(Building.name) private buildingModel: Model<BuildingDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Organization.name) private organizationModel: Model<OrganizationDocument>,
+    @InjectModel(Company.name) private companyModel: Model<CompanyDocument>,
     private buildingsService: BuildingsService,
     private passService: VisitPassService,
     private s3Service: S3Service,
@@ -90,6 +92,10 @@ export class PublicVisitsService {
         commercial || s.guardCanApprove ? 'guard' : 'resident',
       photoUploadAvailable: this.s3Service.isConfigured,
       hostRule: commercial ? 'companyOrPerson' : 'flatOrEmail',
+      // Registered office tenants. When this list is non-empty the form shows a
+      // picker instead of a free-text company box — but free text still posts,
+      // so a visitor for a company nobody registered is never turned away.
+      companies: commercial ? await this.companiesForBuilding(building) : [],
       // Industry rules the form renders from
       visitTypes: this.rules.catalogue(ctx.siteType, s),
       terms: { required: !!s.requireConsent, text: s.termsText || '' },
@@ -147,6 +153,112 @@ export class PublicVisitsService {
         idProofLast4: { show: s.requireIdProof, required: s.requireIdProof },
       },
     };
+  }
+
+  /** Active office tenants of a site, for the public form's picker. */
+  async companiesForBuilding(building: BuildingDocument) {
+    const companies = await this.companyModel
+      .find({ buildingId: building._id, isActive: { $ne: false } })
+      .select('name floor units')
+      .sort({ name: 1 })
+      .limit(300)
+      .lean()
+      .exec();
+    return companies.map((c: any) => ({
+      id: String(c._id),
+      name: c.name,
+      floor: c.floor,
+      unit: (c.units || [])[0],
+    }));
+  }
+
+  /**
+   * People a walk-in can ask for by name. Names only — a public form must
+   * never hand out staff phone numbers or emails.
+   */
+  async peopleForCompany(building: BuildingDocument, companyId: string) {
+    if (!Types.ObjectId.isValid(companyId)) return [];
+    const company = await this.companyModel
+      .findOne({ _id: new Types.ObjectId(companyId), buildingId: building._id })
+      .select('_id')
+      .lean()
+      .exec();
+    if (!company) return [];
+    const people = await this.userModel
+      .find({ companyId: (company as any)._id, isActive: { $ne: false } })
+      .select('fullName designation')
+      .sort({ fullName: 1 })
+      .limit(500)
+      .lean()
+      .exec();
+    return people.map((p: any) => ({
+      id: String(p._id),
+      name: p.fullName,
+      designation: p.designation,
+    }));
+  }
+
+  /** Public wrapper: people of one company at the site behind a gate token. */
+  async publicCompanyPeople(siteToken: string, companyId: string) {
+    const building = await this.buildingsService.findByGateToken(siteToken);
+    const ctx = this.passService.contextFromBuilding(building);
+    if (ctx.siteType !== SiteType.COMMERCIAL) return [];
+    if (!ctx.settings.allowGateQrSelfRegister) return [];
+    return this.peopleForCompany(building, companyId);
+  }
+
+  /** Commercial: map the chosen company (and person) to real records. */
+  private async resolveCompanyHost(
+    building: BuildingDocument,
+    dto: PublicVisitDto,
+  ): Promise<{ company: any | null; host: UserDocument | null }> {
+    let company: any = null;
+    if ((dto as any).companyId && Types.ObjectId.isValid((dto as any).companyId)) {
+      company = await this.companyModel
+        .findOne({
+          _id: new Types.ObjectId((dto as any).companyId),
+          buildingId: building._id,
+          isActive: { $ne: false },
+        })
+        .exec();
+    }
+    if (!company && dto.hostCompany?.trim()) {
+      // Typed rather than picked: match a registered company by name so the
+      // visit still lands on the right team.
+      company = await this.companyModel
+        .findOne({
+          buildingId: building._id,
+          normalizedName: dto.hostCompany.trim().toLowerCase(),
+          isActive: { $ne: false },
+        })
+        .exec();
+    }
+    if (!company) return { company: null, host: null };
+
+    let host: UserDocument | null = null;
+    const wantedId = (dto as any).hostUserId;
+    if (wantedId && Types.ObjectId.isValid(wantedId)) {
+      host = await this.userModel
+        .findOne({
+          _id: new Types.ObjectId(wantedId),
+          companyId: company._id,
+          isActive: { $ne: false },
+        })
+        .exec();
+    }
+    if (!host && dto.hostPersonName?.trim()) {
+      host = await this.userModel
+        .findOne({
+          companyId: company._id,
+          isActive: { $ne: false },
+          fullName: new RegExp(
+            `^${dto.hostPersonName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+            'i',
+          ),
+        })
+        .exec();
+    }
+    return { company, host };
   }
 
   private assertRequired(dto: PublicVisitDto, settings: SiteSettings, commercial: boolean) {
@@ -278,7 +390,13 @@ export class PublicVisitsService {
     }
 
     let host: UserDocument | null = null;
-    if (!commercial) {
+    let company: any = null;
+    let hostEmployee: UserDocument | null = null;
+    if (commercial) {
+      const resolvedHost = await this.resolveCompanyHost(building, dto);
+      company = resolvedHost.company;
+      hostEmployee = resolvedHost.host;
+    } else {
       host = await this.findHostResident(building, dto);
       if (!host && !ctx.settings.guardCanApprove) {
         throw new BadRequestException(
@@ -330,10 +448,19 @@ export class PublicVisitsService {
       buildingId: ctx.buildingId,
       buildingName: ctx.buildingName,
       siteType: ctx.siteType,
-      hostCompany: dto.hostCompany?.trim(),
-      hostPersonName: dto.hostPersonName?.trim(),
-      hostFloor: dto.hostFloor?.trim(),
-      hostUnit: dto.hostUnit?.trim() || (!commercial ? dto.flatNumber?.trim() : undefined),
+      companyId: company?._id,
+      hostUserId: hostEmployee?._id,
+      hostCompany: company?.name || dto.hostCompany?.trim(),
+      hostPersonName: hostEmployee?.fullName || dto.hostPersonName?.trim(),
+      hostFloor:
+        dto.hostFloor?.trim() ||
+        hostEmployee?.workFloor ||
+        company?.floor,
+      hostUnit:
+        dto.hostUnit?.trim() ||
+        hostEmployee?.workUnit ||
+        (company?.units || [])[0] ||
+        (!commercial ? dto.flatNumber?.trim() : undefined),
       vehicleNumber: ctx.settings.collectVehicleNumber ? dto.vehicleNumber?.trim() : undefined,
       guestCount: resolved.guestCount,
       expectedDate,
@@ -350,6 +477,19 @@ export class PublicVisitsService {
     this.notifyPending(saved, host).catch((err) =>
       console.error('Gate QR notification failed:', err),
     );
+
+    // The person being visited hears about it even though the guard is the
+    // one who approves at a commercial desk.
+    if (hostEmployee && this.notificationsService) {
+      this.notificationsService
+        .sendNotificationToUser(
+          String(hostEmployee._id),
+          'Someone is here for you',
+          `${saved.name} has registered at the gate to meet you.`,
+          { type: 'visitor', visitorId: saved._id.toString(), action: 'gate_qr' },
+        )
+        .catch((err) => console.error('Host employee notification failed:', err));
+    }
 
     return {
       ...this.passService.publicView(saved),

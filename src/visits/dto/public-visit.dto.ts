@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsMongoId,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -69,7 +70,19 @@ export class PublicVisitDto {
   @MaxLength(120)
   residentEmail?: string;
 
-  // ---- commercial: free-text "whom to meet", no company records ----
+  // ---- commercial: "whom to meet" ----
+  // A registered office tenant is picked by id; the free-text fields below
+  // still work for a company nobody has registered yet.
+  @ApiPropertyOptional({ description: 'Registered company being visited' })
+  @IsOptional()
+  @IsMongoId({ message: 'Pick the company from the list' })
+  companyId?: string;
+
+  @ApiPropertyOptional({ description: 'The employee being visited, when picked from the list' })
+  @IsOptional()
+  @IsMongoId({ message: 'Pick the person from the list' })
+  hostUserId?: string;
+
   @ApiPropertyOptional({ example: 'Acme Pvt Ltd' })
   @IsOptional()
   @IsString()

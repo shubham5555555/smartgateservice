@@ -54,6 +54,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       buildingIds: Array.isArray(payload.buildingIds)
         ? payload.buildingIds.map((b: any) => String(b))
         : [],
+      // Company claims (commercial offices): which office tenant this
+      // resident-app token belongs to and what it may do inside it.
+      buildingId: payload.buildingId ? String(payload.buildingId) : undefined,
+      accountType: payload.accountType ? String(payload.accountType) : undefined,
+      companyId: payload.companyId ? String(payload.companyId) : undefined,
+      companyRole: payload.companyRole ? String(payload.companyRole) : undefined,
     };
   }
 }

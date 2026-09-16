@@ -1272,8 +1272,43 @@ export class AdminController {
 
   @Post('visitors/verify-qr')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({
+    summary:
+      'Resolve a scanned pass. Returns a visitor card, or an employee card when the payload carries kind "emp".',
+  })
   async verifyVisitorQR(@Body() body: { qrData: string }) {
     return this.adminService.verifyVisitorQR(body.qrData);
+  }
+
+  // ---- Employees at the gate (commercial offices) ----------------------
+
+  @Get('employees/inside')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Company employees currently inside (roll-call)' })
+  async getEmployeesInside(@Query('buildingId') buildingId?: string) {
+    return this.adminService.getEmployeesInside(buildingId);
+  }
+
+  @Post('employees/:id/entry')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Record an employee entering on their own pass' })
+  async recordEmployeeEntry(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: { gate?: string },
+  ) {
+    return this.adminService.recordEmployeeEntry(id, req.user, body?.gate);
+  }
+
+  @Post('employees/:id/exit')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiOperation({ summary: 'Record an employee leaving' })
+  async recordEmployeeExit(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: { gate?: string },
+  ) {
+    return this.adminService.recordEmployeeExit(id, req.user, body?.gate);
   }
 
   @Get('visitors/lookup/:passCode')

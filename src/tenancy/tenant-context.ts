@@ -13,6 +13,14 @@ export interface TenantScope {
   organizationId: Types.ObjectId | null;
   /** Building restriction on top of the organization (building managers, guards with assigned sites). */
   buildingIds: Types.ObjectId[] | null;
+  /**
+   * Company principals (boss / HR / employee) are confined to one company on
+   * top of the organization, the same way a building manager is confined to
+   * their buildings.
+   */
+  companyId: Types.ObjectId | null;
+  /** 'boss' | 'hr' | 'employee' — null for everyone else. */
+  companyRole: string | null;
   /** Principal id (admin user id, guard id, resident id). */
   principalId?: string;
   email?: string;
@@ -22,6 +30,10 @@ export interface TenantScope {
 const storage = new AsyncLocalStorage<TenantScope>();
 
 export const PLATFORM_ROLES = new Set(['super_admin', 'legacy_admin']);
+/** Roles held by a member of an office tenant, carried on a resident-app token. */
+export const COMPANY_ROLE_SET = new Set(['boss', 'hr', 'employee']);
+/** Boss and HR manage the company; an employee only ever sees their own rows. */
+export const COMPANY_MANAGER_SET = new Set(['boss', 'hr']);
 export const ADMIN_ROLE_SET = new Set([
   'super_admin',
   'builder_admin',
@@ -40,12 +52,33 @@ export class TenantContext {
     return storage.run(scope, fn);
   }
 
+  /**
+   * Run a block with every tenant filter off. Only for genuinely global
+   * questions — "is this email / pass code already taken anywhere?" — where a
+   * scoped answer would be wrong and would surface as a duplicate-key crash.
+   * Never use it to return data to a caller.
+   */
+  static runUnscoped<T>(fn: () => T): T {
+    return storage.run(
+      {
+        role: 'legacy_admin',
+        organizationId: null,
+        buildingIds: null,
+        companyId: null,
+        companyRole: null,
+      },
+      fn,
+    );
+  }
+
   static current(): TenantScope {
     return (
       storage.getStore() || {
         role: 'anonymous',
         organizationId: null,
         buildingIds: null,
+        companyId: null,
+        companyRole: null,
       }
     );
   }
@@ -53,7 +86,13 @@ export class TenantContext {
   /** Build the scope from a validated JWT payload (+ optional org header for super admins). */
   static fromJwt(user: any, orgHeader?: string): TenantScope {
     if (!user) {
-      return { role: 'anonymous', organizationId: null, buildingIds: null };
+      return {
+        role: 'anonymous',
+        organizationId: null,
+        buildingIds: null,
+        companyId: null,
+        companyRole: null,
+      };
     }
     const role: string =
       user.role ||
@@ -74,16 +113,28 @@ export class TenantContext {
         role: effectiveRole,
         organizationId,
         buildingIds: null,
+        companyId: null,
+        companyRole: null,
         principalId: user.userId,
         email: user.email,
         name: user.name,
       };
     }
 
+    // A company member signs in through the resident app: role stays
+    // 'resident', and the company claims narrow them further.
+    const companyId = oid(user.companyId);
+    const companyRole =
+      user.companyRole && COMPANY_ROLE_SET.has(String(user.companyRole))
+        ? String(user.companyRole)
+        : null;
+
     return {
       role: effectiveRole,
       organizationId,
       buildingIds: buildingIds.length ? buildingIds : null,
+      companyId: companyRole ? companyId : null,
+      companyRole: companyId ? companyRole : null,
       principalId: user.userId,
       email: user.email,
       name: user.name,
@@ -96,6 +147,29 @@ export class TenantContext {
 
   static isAdmin(scope = TenantContext.current()): boolean {
     return ADMIN_ROLE_SET.has(scope.role);
+  }
+
+  /** True for a boss / HR / employee token. */
+  static isCompany(scope = TenantContext.current()): boolean {
+    return !!scope.companyId && !!scope.companyRole;
+  }
+
+  /** True when the caller may act for the whole company (boss or HR). */
+  static isCompanyManager(scope = TenantContext.current()): boolean {
+    return (
+      TenantContext.isCompany(scope) &&
+      COMPANY_MANAGER_SET.has(scope.companyRole as string)
+    );
+  }
+
+  /** The company a company principal is confined to. */
+  static requireCompanyId(scope = TenantContext.current()): Types.ObjectId {
+    if (!scope.companyId) {
+      const err: any = new Error('Your account is not linked to a company.');
+      err.status = 403;
+      throw err;
+    }
+    return scope.companyId;
   }
 
   /** Mongo filter for a collection stamped with `organizationId`. */

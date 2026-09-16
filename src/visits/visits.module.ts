@@ -15,6 +15,11 @@ import { VisitLifecycleService } from './visit-lifecycle.service';
 import { VisitRulesService } from './visit-rules.service';
 import { WatchlistModule } from '../watchlist/watchlist.module';
 import { Guard, GuardSchema } from '../schemas/guard.schema';
+import {
+  AttendanceEvent,
+  AttendanceEventSchema,
+} from '../schemas/attendance-event.schema';
+import { Company, CompanySchema } from '../schemas/company.schema';
 
 @Module({
   imports: [
@@ -23,6 +28,8 @@ import { Guard, GuardSchema } from '../schemas/guard.schema';
       { name: Building.name, schema: BuildingSchema },
       { name: User.name, schema: UserSchema },
       { name: Organization.name, schema: OrganizationSchema },
+      { name: AttendanceEvent.name, schema: AttendanceEventSchema },
+      { name: Company.name, schema: CompanySchema },
     ]),
     forwardRef(() => NotificationsModule),
     BuildingsModule,

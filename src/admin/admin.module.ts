@@ -45,6 +45,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { forwardRef } from '@nestjs/common';
 import { CommonModule } from '../common/common.module';
 import { VisitsModule } from '../visits/visits.module';
+import { CompanyModule } from '../company/company.module';
+import { Company, CompanySchema } from '../schemas/company.schema';
 import { OrganizationsModule } from '../organizations/organizations.module';
 
 @Module({
@@ -72,10 +74,12 @@ import { OrganizationsModule } from '../organizations/organizations.module';
       { name: Amenity.name, schema: AmenitySchema },
       { name: Contact.name, schema: ContactSchema },
       { name: Building.name, schema: BuildingSchema },
+      { name: Company.name, schema: CompanySchema },
     ]),
     forwardRef(() => NotificationsModule),
     CommonModule,
     VisitsModule,
+    CompanyModule,
     OrganizationsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

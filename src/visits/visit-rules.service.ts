@@ -22,6 +22,11 @@ import {
   visitTypeRule,
 } from '../schemas/visit-types';
 import { WatchlistHit, WatchlistService } from '../watchlist/watchlist.service';
+import {
+  AttendanceEvent,
+  AttendanceEventDocument,
+  AttendanceStatus,
+} from '../schemas/attendance-event.schema';
 
 export interface VisitInput {
   type?: string;
@@ -67,6 +72,8 @@ export interface ResolvedVisit {
 export class VisitRulesService {
   constructor(
     @InjectModel(Visitor.name) private visitorModel: Model<VisitorDocument>,
+    @InjectModel(AttendanceEvent.name)
+    private attendanceModel: Model<AttendanceEventDocument>,
     private watchlist: WatchlistService,
   ) {}
 
@@ -189,15 +196,44 @@ export class VisitRulesService {
     return this.watchlist.match(input);
   }
 
-  /** People currently inside a building (group sizes counted). */
+  /**
+   * People currently inside a building (group sizes counted). Counts visitors
+   * *and* checked-in company employees — a roll-call that left out the people
+   * who work there would be worse than useless in a fire.
+   */
   async occupancy(buildingId?: Types.ObjectId | null): Promise<number> {
     if (!buildingId) return 0;
-    const rows = await this.visitorModel
-      .find({ buildingId, status: VisitorStatus.INSIDE })
-      .select('guestCount')
-      .lean()
-      .exec();
-    return rows.reduce((n, r: any) => n + Math.max(1, r.guestCount || 1), 0);
+    const [rows, employees] = await Promise.all([
+      this.visitorModel
+        .find({ buildingId, status: VisitorStatus.INSIDE })
+        .select('guestCount')
+        .lean()
+        .exec(),
+      this.attendanceModel
+        .countDocuments({ buildingId, status: AttendanceStatus.INSIDE })
+        .exec(),
+    ]);
+    const guests = rows.reduce((n, r: any) => n + Math.max(1, r.guestCount || 1), 0);
+    return guests + employees;
+  }
+
+  /** The same number, split so a UI can explain where it came from. */
+  async occupancyBreakdown(
+    buildingId?: Types.ObjectId | null,
+  ): Promise<{ visitors: number; employees: number; total: number }> {
+    if (!buildingId) return { visitors: 0, employees: 0, total: 0 };
+    const [rows, employees] = await Promise.all([
+      this.visitorModel
+        .find({ buildingId, status: VisitorStatus.INSIDE })
+        .select('guestCount')
+        .lean()
+        .exec(),
+      this.attendanceModel
+        .countDocuments({ buildingId, status: AttendanceStatus.INSIDE })
+        .exec(),
+    ]);
+    const visitors = rows.reduce((n, r: any) => n + Math.max(1, r.guestCount || 1), 0);
+    return { visitors, employees, total: visitors + employees };
   }
 
   /** Refuse entry when the site's capacity would be exceeded. */

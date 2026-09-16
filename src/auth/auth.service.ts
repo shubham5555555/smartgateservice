@@ -12,6 +12,7 @@ import {
   Building,
   BuildingDocument,
 } from '../schemas/building.schema';
+import { AccountType } from '../schemas/company.schema';
 import { LoginDto, VerifyOtpDto } from './dto/login.dto';
 import {
   RegisterEmailDto,
@@ -104,7 +105,7 @@ export class AuthService {
       sub: user._id,
       phoneNumber: user.phoneNumber,
       role: 'resident',
-      organizationId: user.organizationId ? String(user.organizationId) : undefined,
+      ...this.tokenClaims(user),
     };
     const accessToken = this.jwtService.sign(payload);
 
@@ -219,6 +220,21 @@ export class AuthService {
   /**
    * Step 3: Complete profile with password
    */
+  /**
+   * Claims every signed-in user carries. A company member (boss / HR /
+   * employee) keeps role 'resident' — the apps and guards branch on
+   * `accountType` / `companyRole`, and the tenant layer scopes them by company.
+   */
+  private tokenClaims(user: UserDocument | any): Record<string, any> {
+    return {
+      organizationId: user.organizationId ? String(user.organizationId) : undefined,
+      buildingId: user.buildingId ? String(user.buildingId) : undefined,
+      accountType: user.accountType || AccountType.RESIDENT,
+      companyId: user.companyId ? String(user.companyId) : undefined,
+      companyRole: user.companyRole || undefined,
+    };
+  }
+
   /** Find the building a resident picked, by id when given, else by name. */
   private async resolveSite(buildingId?: string, buildingName?: string) {
     if (buildingId && Types.ObjectId.isValid(buildingId)) {
@@ -455,6 +471,13 @@ export class AuthService {
       );
     }
 
+    // A deactivated employee must not be able to sign in again.
+    if (user.isActive === false) {
+      throw new UnauthorizedException(
+        'This account has been deactivated. Contact your administrator.',
+      );
+    }
+
     if (!user.password) {
       throw new UnauthorizedException(
         'Password not set. Please complete your profile.',
@@ -472,7 +495,7 @@ export class AuthService {
       sub: user._id,
       email: user.email,
       role: 'resident',
-      organizationId: user.organizationId ? String(user.organizationId) : undefined,
+      ...this.tokenClaims(user),
     };
     const accessToken = this.jwtService.sign(payload);
 

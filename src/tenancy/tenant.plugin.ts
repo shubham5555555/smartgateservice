@@ -12,8 +12,14 @@ import { TenantContext, TenantScope } from './tenant-context';
  * - New documents are stamped with the caller's organization when the schema
  *   has `organizationId` and the document does not set one.
  *
- * Resident callers are not filtered here: their services already key off the
- * resident's own id, and residents created before the migration carry no
+ * - For company callers (boss / HR / employee) every read/update/delete on a
+ *   collection that carries `companyId` is confined to their company, and new
+ *   documents are stamped with it. That is what stops one office tenant from
+ *   ever seeing another's staff or visitors, without each service having to
+ *   remember a `where` clause.
+ *
+ * Plain resident callers are not filtered here: their services already key off
+ * the resident's own id, and residents created before the migration carry no
  * organization yet.
  */
 const QUERY_OPS = [
@@ -35,10 +41,29 @@ function isScoped(scope: TenantScope): boolean {
   return TenantContext.isAdmin(scope) || scope.role === 'guard';
 }
 
+/** Company principals are scoped by company, whatever their base role is. */
+function isCompanyScoped(scope: TenantScope): boolean {
+  return !!scope.companyId && !!scope.companyRole;
+}
+
 export function tenantFilterFor(
   scope: TenantScope,
-  opts: { hasOrg: boolean; hasBuilding: boolean; isBuildingModel: boolean },
+  opts: {
+    hasOrg: boolean;
+    hasBuilding: boolean;
+    isBuildingModel: boolean;
+    hasCompany?: boolean;
+    isCompanyModel?: boolean;
+  },
 ): Record<string, any> | null {
+  // A company member is confined to their company even though their base role
+  // ('resident') is otherwise unfiltered here.
+  if (isCompanyScoped(scope)) {
+    const cf: Record<string, any> = {};
+    if (opts.isCompanyModel) cf._id = scope.companyId;
+    else if (opts.hasCompany) cf.companyId = scope.companyId;
+    return Object.keys(cf).length ? cf : null;
+  }
   if (!isScoped(scope)) return null;
   const f: Record<string, any> = {};
   if (opts.hasOrg) {
@@ -59,12 +84,15 @@ export function tenantFilterFor(
 export function tenantPlugin(schema: Schema) {
   const hasOrg = !!schema.path('organizationId');
   const hasBuilding = !!schema.path('buildingId');
-  if (!hasOrg && !hasBuilding) return;
+  const hasCompany = !!schema.path('companyId');
+  if (!hasOrg && !hasBuilding && !hasCompany) return;
 
   const opts = (modelName?: string) => ({
     hasOrg,
     hasBuilding,
+    hasCompany,
     isBuildingModel: modelName === 'Building',
+    isCompanyModel: modelName === 'Company',
   });
 
   const queryHook = function (this: any) {
@@ -84,6 +112,14 @@ export function tenantPlugin(schema: Schema) {
     if (!f) return;
     this.pipeline().unshift({ $match: f });
   });
+
+  if (hasCompany) {
+    schema.pre('save', function (this: any) {
+      if (this.companyId) return;
+      const scope = TenantContext.current();
+      if (scope.companyId) this.companyId = scope.companyId as Types.ObjectId;
+    });
+  }
 
   if (hasOrg) {
     schema.pre('save', function (this: any) {

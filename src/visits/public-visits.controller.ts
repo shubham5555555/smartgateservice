@@ -36,6 +36,18 @@ export class PublicVisitsController {
     return this.publicVisitsService.getSiteForm(siteToken);
   }
 
+  @Get('sites/:siteToken/companies/:companyId/people')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Names of the people in one office tenant (gate form picker)',
+  })
+  async companyPeople(
+    @Param('siteToken') siteToken: string,
+    @Param('companyId') companyId: string,
+  ) {
+    return this.publicVisitsService.publicCompanyPeople(siteToken, companyId);
+  }
+
   @Post('sites/:siteToken/visits')
   @Throttle({ default: { limit: 60, ttl: 600_000 } }) // a lobby kiosk shares one IP
   @ApiOperation({ summary: 'Register a visit from the gate QR form' })

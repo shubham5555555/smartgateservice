@@ -73,6 +73,8 @@ export enum ActorKind {
   GUARD = 'guard',
   ADMIN = 'admin',
   SYSTEM = 'system',
+  /** A company member (boss / HR / employee) acting from the user app. */
+  EMPLOYEE = 'employee',
 }
 
 export interface Actor {
@@ -81,7 +83,7 @@ export interface Actor {
   name?: string;
 }
 
-const ActorProp = {
+export const ActorProp = {
   type: { kind: String, id: String, name: String },
   _id: false,
 };
@@ -204,7 +206,19 @@ export class Visitor {
   @Prop({ type: Types.ObjectId, ref: 'Parcel' })
   parcelId?: Types.ObjectId;
 
-  // ---- Commercial "whom to meet": free text, no company/employee records ----
+  // ---- Commercial "whom to meet" ----
+  /**
+   * The office tenant being visited, when it is a real company record. The
+   * free-text fields below are always filled too, so the desk can still take a
+   * visit for a company nobody has registered yet.
+   */
+  @Prop({ type: Types.ObjectId, ref: 'Company', index: true })
+  companyId?: Types.ObjectId;
+
+  /** The company member hosting this visit (employee invites). */
+  @Prop({ type: Types.ObjectId, ref: 'User', index: true })
+  hostUserId?: Types.ObjectId;
+
   @Prop()
   hostCompany?: string;
 
