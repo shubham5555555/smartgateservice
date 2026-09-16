@@ -410,7 +410,12 @@ export class NotificationsService {
     return this.notificationModel
       .find({
         recipientType: 'Guard',
-        $or: [{ recipientId: new Types.ObjectId(guardId) }, { recipientId: { $exists: false } }],
+        $or: [
+          ...(Types.ObjectId.isValid(guardId)
+            ? [{ recipientId: new Types.ObjectId(guardId) }]
+            : []),
+          { recipientId: { $exists: false } },
+        ],
       })
       .sort({ createdAt: -1 })
       .limit(50)
@@ -442,7 +447,12 @@ export class NotificationsService {
 
   async markAllAsReadForGuard(guardId: string) {
     return this.notificationModel.updateMany(
-      { recipientId: new Types.ObjectId(guardId), isRead: false },
+      {
+        recipientId: Types.ObjectId.isValid(guardId)
+          ? new Types.ObjectId(guardId)
+          : null,
+        isRead: false,
+      },
       { $set: { isRead: true } },
     ).exec();
   }

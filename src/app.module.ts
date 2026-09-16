@@ -25,6 +25,7 @@ import { BuildingsModule } from './buildings/buildings.module';
 import { RemindersModule } from './reminders/reminders.module';
 import { ContactsModule } from './contacts/contacts.module';
 import { VisitsModule } from './visits/visits.module';
+import { NoticesModule } from './notices/notices.module';
 import { MetricsController } from './metrics/metrics.controller';
 import { TenancyModule } from './tenancy/tenancy.module';
 import { tenantPlugin } from './tenancy/tenant.plugin';
@@ -77,6 +78,7 @@ import { WatchlistModule } from './watchlist/watchlist.module';
     RemindersModule,
     ContactsModule,
     VisitsModule,
+    NoticesModule,
   ],
   controllers: [AppController, MetricsController],
   providers: [AppService],

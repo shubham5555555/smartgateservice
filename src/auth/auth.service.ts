@@ -6,8 +6,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { User, UserDocument } from '../schemas/user.schema';
+import {
+  Building,
+  BuildingDocument,
+} from '../schemas/building.schema';
 import { LoginDto, VerifyOtpDto } from './dto/login.dto';
 import {
   RegisterEmailDto,
@@ -28,6 +32,8 @@ export class AuthService {
 
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(Building.name)
+    private buildingModel: Model<BuildingDocument>,
     private jwtService: JwtService,
     private emailService: EmailService,
   ) {}
@@ -213,6 +219,22 @@ export class AuthService {
   /**
    * Step 3: Complete profile with password
    */
+  /** Find the building a resident picked, by id when given, else by name. */
+  private async resolveSite(buildingId?: string, buildingName?: string) {
+    if (buildingId && Types.ObjectId.isValid(buildingId)) {
+      const byId = await this.buildingModel.findById(buildingId).exec();
+      if (byId) return byId;
+    }
+    if (buildingName && buildingName.trim()) {
+      return this.buildingModel
+        .findOne({
+          name: new RegExp(`^${buildingName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+        })
+        .exec();
+    }
+    return null;
+  }
+
   async completeProfile(completeDto: CompleteProfileDto, email: string) {
     // Validate email format
     if (!email || typeof email !== 'string' || !email.includes('@')) {
@@ -370,9 +392,26 @@ export class AuthService {
     userDoc.password = hashedPassword;
     userDoc.role = completeDto.role as any;
     userDoc.block = completeDto.block;
-    userDoc.flat = completeDto.flat;
-    userDoc.flatNo = completeDto.flat;
+    const unit = completeDto.flat || completeDto.flatNo;
+    userDoc.flat = unit;
+    userDoc.flatNo = unit;
     userDoc.phoneNumber = completeDto.phoneNumber;
+
+    // Attach the resident to a real building so they inherit its builder
+    // (organizationId). Without this the account is invisible to every
+    // tenant-scoped query and the resident sees an empty app.
+    const site = await this.resolveSite(
+      completeDto.buildingId,
+      completeDto.building,
+    );
+    if (site) {
+      userDoc.building = site.name;
+      (userDoc as any).buildingId = site._id;
+      (userDoc as any).organizationId = (site as any).organizationId;
+    } else if (completeDto.building) {
+      userDoc.building = completeDto.building;
+    }
+
     userDoc.isProfileComplete = true;
     // isApprovedByAdmin remains false - admin needs to approve
 

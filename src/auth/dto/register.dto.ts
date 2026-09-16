@@ -4,8 +4,10 @@ import {
   IsString,
   Matches,
   MinLength,
+  IsOptional,
+  IsMongoId,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RegisterEmailDto {
   @ApiProperty({
@@ -73,25 +75,43 @@ export class CompleteProfileDto {
   @IsString()
   role: string;
 
-  @ApiProperty({
-    description: 'Block number',
-    example: 'A',
-    required: false,
-  })
+  // NOTE: every optional field below needs a validation decorator. The global
+  // ValidationPipe runs with `whitelist: true`, which strips any property that
+  // carries no validator — that is how the chosen building used to disappear.
+
+  @ApiPropertyOptional({ description: 'Block number', example: 'A' })
+  @IsOptional()
+  @IsString()
   block?: string;
 
-  @ApiProperty({
-    description: 'Flat number',
-    example: '101',
-    required: false,
-  })
+  @ApiPropertyOptional({ description: 'Flat / unit number', example: '101' })
+  @IsOptional()
+  @IsString()
   flat?: string;
 
-  @ApiProperty({
-    description: 'Phone number (optional)',
-    example: '9876543210',
-    required: false,
+  @ApiPropertyOptional({ description: 'Flat / unit number (app alias)', example: '101' })
+  @IsOptional()
+  @IsString()
+  flatNo?: string;
+
+  @ApiPropertyOptional({
+    description: 'Id of the building the resident belongs to (preferred)',
   })
+  @IsOptional()
+  @IsMongoId({ message: 'buildingId must be a valid id' })
+  buildingId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Building name, used only when buildingId is not supplied',
+    example: 'Tower A',
+  })
+  @IsOptional()
+  @IsString()
+  building?: string;
+
+  @ApiPropertyOptional({ description: 'Phone number', example: '9876543210' })
+  @IsOptional()
+  @IsString()
   phoneNumber?: string;
 }
 
