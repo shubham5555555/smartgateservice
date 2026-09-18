@@ -2530,12 +2530,22 @@ export class AdminService {
     return visitor;
   }
 
+  /** Anything interpolated into a $regex has to be escaped first. */
+  private escapeRegex(value: string): string {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
   async lookupResidentByFlat(building: string, flatNo: string) {
+    // Escape before interpolating: a site called "Akshar Heights (Test)" turned
+    // the brackets into a capture group, so the anchored regex could never
+    // match its own name and the desk found no resident for any flat.
+    const site = this.escapeRegex(building);
+    const unit = this.escapeRegex(flatNo);
     const residents = await this.userModel
       .find({
         $or: [
-          { building: { $regex: `^${building}$`, $options: 'i' }, flatNo: { $regex: `^${flatNo}$`, $options: 'i' } },
-          { building: { $regex: `^${building}$`, $options: 'i' }, flat: { $regex: `^${flatNo}$`, $options: 'i' } },
+          { building: { $regex: `^${site}$`, $options: 'i' }, flatNo: { $regex: `^${unit}$`, $options: 'i' } },
+          { building: { $regex: `^${site}$`, $options: 'i' }, flat: { $regex: `^${unit}$`, $options: 'i' } },
         ],
         isApprovedByAdmin: true,
       })
