@@ -1773,6 +1773,10 @@ export class AdminService {
       throw new NotFoundException('Resident not found');
     }
 
+    if (user.isActive === false || !user.isApprovedByAdmin) {
+      throw new ForbiddenException('This resident account is not approved for access.');
+    }
+
     // Fetch owner details if it's a family member or tenant linked to an owner
     let ownerName: string | undefined = undefined;
     if (user.parentUserId) {
@@ -3151,6 +3155,13 @@ export class AdminService {
         new Date(new Date(issuedAt).getTime() + validityHours * 3600_000);
       const timeRemaining = expiresAt.getTime() - Date.now();
 
+      const withinWindow =
+        (!visitor.validFrom || visitor.validFrom.getTime() <= Date.now()) &&
+        (!visitor.validUntil || visitor.validUntil.getTime() >= Date.now());
+      const canCheckIn = !expired && withinWindow &&
+        visitor.watchlistHit?.kind !== 'block' &&
+        (visitor.status === VisitorStatus.APPROVED || visitor.status === VisitorStatus.LEFT);
+
       return {
         visitor: {
           id: visitor._id.toString(),
@@ -3182,19 +3193,12 @@ export class AdminService {
           consentAcceptedAt: visitor.consentAcceptedAt,
         },
         // Valid = usable for entry right now.
-        isValid:
-          !expired &&
-          (visitor.status === VisitorStatus.APPROVED ||
-            visitor.status === VisitorStatus.INSIDE),
+        isValid: canCheckIn || visitor.status === VisitorStatus.INSIDE,
         expired,
-        // The guard app decides which action to offer.
         canApprove:
           visitor.status === VisitorStatus.PENDING &&
           ctx.settings.guardCanApprove,
-        canCheckIn:
-          !expired &&
-          (visitor.status === VisitorStatus.APPROVED ||
-            visitor.status === VisitorStatus.LEFT),
+        canCheckIn,
         canCheckOut: visitor.status === VisitorStatus.INSIDE,
         occupancy: ctx.settings.maxInside
           ? { inside: await this.visitRules.occupancy(visitor.buildingId), max: ctx.settings.maxInside }

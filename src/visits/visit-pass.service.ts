@@ -133,6 +133,7 @@ export class VisitPassService {
     VisitorStatus.PENDING,
     VisitorStatus.APPROVED,
     VisitorStatus.INSIDE,
+    VisitorStatus.LEFT, // Unexpired passes remain usable for re-entry.
   ];
 
   /** A 6-char code that no other live pass at the same site uses. */
@@ -293,7 +294,8 @@ export class VisitPassService {
       // Only an approved pass carries a scannable code.
       qrPayload:
         visitor.status === VisitorStatus.APPROVED ||
-        visitor.status === VisitorStatus.INSIDE
+        visitor.status === VisitorStatus.INSIDE ||
+        (visitor.status === VisitorStatus.LEFT && !this.isExpired(visitor))
           ? visitor.qrCode
           : null,
     };

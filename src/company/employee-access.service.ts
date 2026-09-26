@@ -125,7 +125,7 @@ export class EmployeeAccessService {
       entryTime: today?.entryTime,
       exitTime: today?.exitTime,
       canCheckIn: isValid && !open,
-      canCheckOut: isValid && open,
+      canCheckOut: open, // Revocation prevents entry, never recording a departure.
     };
   }
 

@@ -111,14 +111,14 @@ export class User {
   // Everything below is empty on a resident. `accountType` is what the apps
   // branch on; it defaults to `resident` so every existing row keeps working.
 
-  @Prop({ enum: AccountType, default: AccountType.RESIDENT, index: true })
+  @Prop({ type: String, enum: AccountType, default: AccountType.RESIDENT, index: true })
   accountType: AccountType;
 
   /** The office tenant this person belongs to. */
   @Prop({ type: Types.ObjectId, ref: 'Company', index: true })
   companyId?: Types.ObjectId;
 
-  @Prop({ enum: CompanyRole })
+  @Prop({ type: String, enum: CompanyRole })
   companyRole?: CompanyRole;
 
   @Prop()

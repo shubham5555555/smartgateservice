@@ -30,7 +30,7 @@ export class ParkingApplication {
   @Prop({ enum: ApplicationStatus, default: ApplicationStatus.UNDER_REVIEW })
   status: ApplicationStatus;
 
-  @Prop({ enum: ParkingType })
+  @Prop({ type: String, enum: ParkingType })
   parkingType?: ParkingType;
 
   @Prop()

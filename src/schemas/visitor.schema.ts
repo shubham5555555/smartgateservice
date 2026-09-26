@@ -118,7 +118,7 @@ export class Visitor {
   @Prop()
   buildingName?: string;
 
-  @Prop({ enum: SiteType, default: SiteType.RESIDENTIAL })
+  @Prop({ type: String, enum: SiteType, default: SiteType.RESIDENTIAL })
   siteType?: SiteType;
 
   @Prop({ required: true })

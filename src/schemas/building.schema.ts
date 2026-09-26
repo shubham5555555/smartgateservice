@@ -73,11 +73,11 @@ export class Building {
   type: string;
 
   /** What kind of property this is; fixes siteType, unit model and unit label. */
-  @Prop({ enum: PropertyType, default: PropertyType.APARTMENT, index: true })
+  @Prop({ type: String, enum: PropertyType, default: PropertyType.APARTMENT, index: true })
   propertyType: PropertyType;
 
   /** 'floors' (101, 102…) or 'standalone' (Villa-001, Plot-001…). */
-  @Prop({ enum: UnitModel, default: UnitModel.FLOORS })
+  @Prop({ type: String, enum: UnitModel, default: UnitModel.FLOORS })
   unitModel: UnitModel;
 
   /** "Flat", "Villa", "Plot", "Office"… — what the UI calls one unit. */
@@ -88,7 +88,7 @@ export class Building {
    * Behavioural mode of the site. `type` above is only a display label;
    * this is what the visitor flow branches on.
    */
-  @Prop({ enum: SiteType, default: SiteType.RESIDENTIAL, index: true })
+  @Prop({ type: String, enum: SiteType, default: SiteType.RESIDENTIAL, index: true })
   siteType: SiteType;
 
   @Prop({ type: SiteSettingsSchema, default: () => defaultSiteSettings(SiteType.RESIDENTIAL) })

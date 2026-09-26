@@ -1,3 +1,4 @@
+jest.mock('../common/s3.service', () => ({ S3Service: class S3Service {} }));
 import { Test } from '@nestjs/testing';
 import { BuildingsService } from './buildings.service';
 import { getModelToken } from '@nestjs/mongoose';
@@ -24,6 +25,7 @@ describe('BuildingsService (unit)', () => {
         BuildingsService,
         { provide: getModelToken('Building'), useValue: mockBuildingModel },
         { provide: getModelToken('User'), useValue: mockUserModel },
+        { provide: getModelToken('Visitor'), useValue: {} },
         { provide: S3Service, useValue: mockS3 },
         { provide: QueueService, useValue: mockQueue },
       ],
